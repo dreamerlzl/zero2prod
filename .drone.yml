@@ -1,0 +1,23 @@
+kind: pipeline
+name: zero2prod
+
+steps:
+- name: test
+  image: rust:1.30
+  commands:
+  # test
+  - cargo test
+  - cargo install cargo-tarpaulin
+  - cargo tarpaulin --ignore-tests
+
+  # lint
+  - rustup component add clippy
+  - cargo clippy -- -D warnings
+
+  # format
+  - rustup component add rustfmt
+  - cargo fmt -- --check
+
+  # check security
+  - cargo install cargo-audit
+  - cargo audit
