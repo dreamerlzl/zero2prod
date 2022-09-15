@@ -1,6 +1,8 @@
 use poem_openapi::{payload::Form, ApiResponse, Object, OpenApi, OpenApiService};
 use serde::Deserialize;
 
+use crate::configuration::RelationalDBSettings;
+
 pub struct SubscribeApi {}
 
 impl SubscribeApi {
