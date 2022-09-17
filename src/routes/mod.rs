@@ -1,14 +1,26 @@
+pub mod health;
 pub mod subscribe;
 
-use poem::Endpoint;
-use poem_openapi::OpenApiService;
-
 use crate::configuration::Configuration;
+use poem::{get, Route};
+use sea_orm::{ConnectionTrait, Database, DbBackend, DbErr};
 
-use self::subscribe::SubscribeApi;
+use health::health_check;
 
-pub fn get_api_service() -> (OpenApiService<SubscribeApi, ()>, impl Endpoint) {
-    let api_service = OpenApiService::new(SubscribeApi::new(), "subscribe", "0.1").server("");
-    let ui = api_service.swagger_ui();
-    (api_service, ui)
+pub async fn default_route(conf: Configuration) -> Route {
+    let sql = &conf.db;
+    let db_url = format!(
+        "postgres:://{}:{}@{}:{}/{}",
+        sql.username, sql.password, sql.host, sql.port, sql.name,
+    );
+    let db = Database::connect(db_url)
+        .await
+        .expect("fail to get sql db connection");
+
+    let mut route = Route::new().at("/api/v1/health_check", get(health_check));
+
+    let (api_service, ui) = subscribe::get_api_service();
+    route = route.nest("/", api_service).nest("/docs", ui);
+
+    route
 }

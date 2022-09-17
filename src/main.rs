@@ -1,6 +1,7 @@
 use poem::{listener::TcpListener, Server};
 
-use zero2prod::{configuration::get_configuration, default_route};
+use zero2prod::configuration::get_configuration;
+use zero2prod::routes::default_route;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {

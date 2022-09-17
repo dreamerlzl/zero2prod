@@ -1,9 +1,14 @@
+use poem::Endpoint;
 use poem_openapi::{payload::Form, ApiResponse, Object, OpenApi, OpenApiService};
 use serde::Deserialize;
 
-use crate::configuration::RelationalDBSettings;
-
 pub struct SubscribeApi {}
+
+pub fn get_api_service() -> (OpenApiService<SubscribeApi, ()>, impl Endpoint) {
+    let api_service = OpenApiService::new(SubscribeApi::new(), "subscribe", "0.1").server("");
+    let ui = api_service.swagger_ui();
+    (api_service, ui)
+}
 
 impl SubscribeApi {
     pub fn new() -> Self {
