@@ -1,12 +1,12 @@
 use poem::http::StatusCode;
 use poem::test::TestClient;
 
-use zero2prod::configuration::get_configuration;
-use zero2prod::default_route;
+use zero2prod::configuration::get_test_configuration;
+use zero2prod::routes::default_route;
 
 #[tokio::test]
 async fn subscribe_returns_400_for_invalid_data() {
-    let conf = get_configuration().expect("fail to get conf");
+    let conf = get_test_configuration("config/test").expect("fail to get conf");
     let app = default_route(conf).await;
     let cli = TestClient::new(app);
     let invalid_data = ["", "name=lzl", "email=aaa", "name=lzl&email=aaa", "foobar"];

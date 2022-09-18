@@ -63,6 +63,7 @@ mod tests {
     // just test Environment variables
     #[test]
     #[parallel]
+    #[ignore]
     fn test_env() {
         env::set_var("APP__APP_PORT", "8081");
         env::set_var("APP__DB__USERNAME", "foo");
@@ -91,6 +92,7 @@ mod tests {
     // create a temporary configuration.yml file
     #[test]
     #[parallel]
+    #[ignore]
     fn test_file() {
         // create a temporary configuration.yaml under $root/config/
 
@@ -123,6 +125,7 @@ db:
 
     #[test]
     #[serial]
+    #[ignore]
     fn test_hierarchy() {
         use std::fs::{create_dir_all, File};
         // create a temporary configuration.yaml under $root/config/

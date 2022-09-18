@@ -1,6 +1,6 @@
 use poem::{test::TestClient, Route};
 
-use zero2prod::health_check;
+use zero2prod::routes::health::health_check;
 
 #[tokio::test]
 async fn test_health_check() {
