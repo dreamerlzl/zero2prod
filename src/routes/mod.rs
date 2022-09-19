@@ -3,16 +3,18 @@ pub mod subscribe;
 
 use crate::configuration::Configuration;
 use poem::{get, Route};
-use sea_orm::{ConnectionTrait, Database, DbBackend, DbErr};
+use sea_orm::Database;
+use tracing::info;
 
 use health::health_check;
 
 pub async fn default_route(conf: Configuration) -> Route {
     let sql = &conf.db;
     let db_url = format!(
-        "postgres:://{}:{}@{}:{}/{}",
+        "postgres://{}:{}@{}:{}/{}",
         sql.username, sql.password, sql.host, sql.port, sql.name,
     );
+    info!(db_url, "connecting to db");
     let db = Database::connect(db_url)
         .await
         .expect("fail to get sql db connection");

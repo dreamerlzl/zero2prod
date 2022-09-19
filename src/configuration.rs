@@ -5,6 +5,7 @@ use serde::Deserialize;
 #[allow(unused)]
 pub struct Configuration {
     pub app_port: u16,
+    pub log_level: Option<String>,
     pub db: RelationalDBSettings,
 }
 
@@ -20,6 +21,7 @@ pub struct RelationalDBSettings {
 
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
     let conf = Config::builder()
+        .set_default("log_level", Some("DEBUG"))?
         .add_source(config::File::with_name("config/prod").required(false))
         .add_source(
             Environment::with_prefix("app")
@@ -32,6 +34,7 @@ pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
 
 pub fn get_test_configuration(path: &str) -> Result<Configuration, config::ConfigError> {
     let conf = Config::builder()
+        .set_default("log_level", Some("DEBUG"))?
         .add_source(config::File::with_name(path).required(false))
         .add_source(
             Environment::with_prefix("app")
