@@ -35,7 +35,12 @@ impl MigrationTrait for Migration {
                             .unique_key(),
                     )
                     .col(ColumnDef::new(Subscription::Name).string().not_null())
-                    .col(ColumnDef::new(Subscription::SubscribedAt).date().not_null())
+                    .col(
+                        ColumnDef::new(Subscription::SubscribedAt)
+                            .timestamp_with_time_zone()
+                            .extra("DEFAULT CURRENT_TIMESTAMP".to_string())
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await

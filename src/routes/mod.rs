@@ -21,8 +21,8 @@ pub async fn default_route(conf: Configuration) -> Route {
 
     let mut route = Route::new().at("/api/v1/health_check", get(health_check));
 
-    let (api_service, ui) = subscribe::get_api_service(db.clone());
+    let server_url = format!("http://localhost:{}", conf.app_port);
+    let (api_service, ui) = subscribe::get_api_service(db.clone(), &server_url);
     route = route.nest("/", api_service).nest("/docs", ui);
-
     route
 }

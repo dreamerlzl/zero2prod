@@ -2,8 +2,6 @@ pub mod configuration;
 pub mod entities;
 pub mod routes;
 
-use tracing_subscriber::fmt::writer::MakeWriterExt;
-
 pub fn setup_logger(log_level: &str) {
     let level = match log_level.to_ascii_lowercase().as_str() {
         "debug" => tracing::Level::DEBUG,

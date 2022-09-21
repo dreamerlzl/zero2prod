@@ -1,4 +1,5 @@
 use crate::entities::{prelude::*, *};
+use chrono::{DateTime, Local};
 use poem::Endpoint;
 use poem_openapi::{
     payload::{Form, Json},
@@ -6,6 +7,7 @@ use poem_openapi::{
 };
 use sea_orm::*;
 use serde::Deserialize;
+use tracing::{debug, info, warn};
 use validator::Validate;
 
 pub struct SubscribeApi {
@@ -14,8 +16,10 @@ pub struct SubscribeApi {
 
 pub fn get_api_service(
     db: DatabaseConnection,
+    server_url: &str,
 ) -> (OpenApiService<SubscribeApi, ()>, impl Endpoint) {
-    let api_service = OpenApiService::new(SubscribeApi::new(db), "subscribe", "0.1").server("");
+    let api_service =
+        OpenApiService::new(SubscribeApi::new(db), "subscribe", "0.1").server(server_url);
     let ui = api_service.swagger_ui();
     (api_service, ui)
 }
@@ -32,6 +36,7 @@ impl SubscribeApi {
     #[oai(path = "/subscription", method = "post")]
     async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
         if let Err(e) = form.0.validate() {
+            info!(error = e.to_string());
             return CreateSubscriptionResponse::InvalidData(Json(e.to_string()));
         }
         let new_subscription = subscription::ActiveModel {
@@ -40,10 +45,15 @@ impl SubscribeApi {
             ..Default::default()
         };
         let res = Subscription::insert(new_subscription).exec(&self.db).await;
-        if let Ok(record) = res {
-            CreateSubscriptionResponse::Ok(Json(record.last_insert_id))
-        } else {
-            CreateSubscriptionResponse::ServerErr
+        match res {
+            Ok(record) => {
+                debug!(record.last_insert_id, "newly created subscription id");
+                CreateSubscriptionResponse::Ok(Json(record.last_insert_id))
+            }
+            Err(e) => {
+                warn!(error = e.to_string());
+                CreateSubscriptionResponse::ServerErr
+            }
         }
     }
 }

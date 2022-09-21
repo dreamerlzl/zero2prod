@@ -10,7 +10,7 @@ pub struct Model {
     #[sea_orm(unique)]
     pub email: String,
     pub name: String,
-    pub subscribed_at: Date,
+    pub subscribed_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
