@@ -1,5 +1,4 @@
 use crate::entities::{prelude::*, *};
-use chrono::{DateTime, Local};
 use poem::Endpoint;
 use poem_openapi::{
     payload::{Form, Json},
@@ -37,7 +36,9 @@ impl SubscribeApi {
     async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
         if let Err(e) = form.0.validate() {
             info!(error = e.to_string());
-            return CreateSubscriptionResponse::InvalidData(Json(e.to_string()));
+            return CreateSubscriptionResponse::InvalidData(Json(InvalidData {
+                msg: e.to_string(),
+            }));
         }
         let new_subscription = subscription::ActiveModel {
             name: ActiveValue::Set(form.0.user),
@@ -48,7 +49,9 @@ impl SubscribeApi {
         match res {
             Ok(record) => {
                 debug!(record.last_insert_id, "newly created subscription id");
-                CreateSubscriptionResponse::Ok(Json(record.last_insert_id))
+                CreateSubscriptionResponse::Ok(Json(CreateSuccess {
+                    id: record.last_insert_id,
+                }))
             }
             Err(e) => {
                 warn!(error = e.to_string());
@@ -65,13 +68,23 @@ struct SubscribeFormData {
     email: String,
 }
 
+#[derive(Object)]
+struct CreateSuccess {
+    id: i32,
+}
+
+#[derive(Object)]
+struct InvalidData {
+    msg: String,
+}
+
 #[derive(ApiResponse)]
 enum CreateSubscriptionResponse {
     #[oai(status = 200)]
-    Ok(Json<i32>),
+    Ok(Json<CreateSuccess>),
 
     #[oai(status = 400)]
-    InvalidData(Json<String>),
+    InvalidData(Json<InvalidData>),
 
     #[oai(status = 500)]
     ServerErr,
