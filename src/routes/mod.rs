@@ -2,7 +2,9 @@ pub mod health;
 pub mod subscribe;
 
 use crate::configuration::Configuration;
+use poem::middleware::Tracing;
 use poem::{get, Route};
+use poem::{Endpoint, EndpointExt};
 use sea_orm::Database;
 use tracing::info;
 
@@ -25,4 +27,8 @@ pub async fn default_route(conf: Configuration) -> Route {
     let (api_service, ui) = subscribe::get_api_service(db.clone(), &server_url);
     route = route.nest("/", api_service).nest("/docs", ui);
     route
+}
+
+fn add_tracing(ep: impl Endpoint) -> impl Endpoint {
+    ep.with(Tracing)
 }

@@ -1,3 +1,5 @@
+use tracing_subscriber::fmt::format::FmtSpan;
+
 pub mod configuration;
 pub mod entities;
 pub mod routes;
@@ -12,6 +14,9 @@ pub fn setup_logger(log_level: &str) {
     let stdout = std::io::stdout;
 
     tracing_subscriber::fmt()
+        .json()
+        .with_current_span(true)
+        .with_span_events(FmtSpan::FULL)
         .with_max_level(level)
         .with_ansi(false) // disable color output
         .with_line_number(level == tracing::Level::DEBUG)

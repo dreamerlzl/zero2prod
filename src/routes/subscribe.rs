@@ -1,4 +1,3 @@
-use crate::entities::{prelude::*, *};
 use poem::Endpoint;
 use poem_openapi::{
     payload::{Form, Json},
@@ -6,8 +5,11 @@ use poem_openapi::{
 };
 use sea_orm::*;
 use serde::Deserialize;
-use tracing::{debug, info, warn};
+use tracing::{info, span, warn, Level};
 use validator::Validate;
+
+use super::add_tracing;
+use crate::entities::{prelude::*, *};
 
 pub struct SubscribeApi {
     db: DatabaseConnection,
@@ -32,14 +34,21 @@ impl SubscribeApi {
 #[OpenApi]
 impl SubscribeApi {
     // make a subscription
-    #[oai(path = "/subscription", method = "post")]
+    #[oai(path = "/subscription", method = "post", transform = "add_tracing")]
     async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
+        let span = span!(Level::INFO, "new_subscribe", email = &form.0.email);
+        let _enter = span.enter();
+
         if let Err(e) = form.0.validate() {
             info!(error = e.to_string());
             return CreateSubscriptionResponse::InvalidData(Json(InvalidData {
                 msg: e.to_string(),
             }));
         }
+        info!(
+            email = &form.0.email,
+            "starting to add new subscription into db"
+        );
         let new_subscription = subscription::ActiveModel {
             name: ActiveValue::Set(form.0.user),
             email: ActiveValue::Set(form.0.email),
@@ -48,7 +57,7 @@ impl SubscribeApi {
         let res = Subscription::insert(new_subscription).exec(&self.db).await;
         match res {
             Ok(record) => {
-                debug!(record.last_insert_id, "newly created subscription id");
+                info!(record.last_insert_id, "newly created subscription id");
                 CreateSubscriptionResponse::Ok(Json(CreateSuccess {
                     id: record.last_insert_id,
                 }))
