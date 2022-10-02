@@ -5,8 +5,7 @@ use poem_openapi::{
 };
 use sea_orm::*;
 use serde::Deserialize;
-use tracing::{info, span, warn, Level};
-use tracing_futures::Instrument;
+use tracing::{info, warn};
 use validator::Validate;
 
 use super::add_tracing;
@@ -36,10 +35,15 @@ impl SubscribeApi {
 impl SubscribeApi {
     // make a subscription
     #[oai(path = "/subscription", method = "post", transform = "add_tracing")]
+    #[tracing::instrument(
+        skip(self, form),
+        name = "new subscription",
+        fields(
+            email=%form.0.email,
+            user=%form.0.user
+        )
+    )]
     async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
-        let span = span!(Level::INFO, "new_subscribe", email = &form.0.email);
-        let _enter = span.enter();
-
         if let Err(e) = form.0.validate() {
             info!(error = e.to_string());
             return CreateSubscriptionResponse::InvalidData(Json(InvalidData {
@@ -51,11 +55,7 @@ impl SubscribeApi {
             email: ActiveValue::Set(form.0.email),
             ..Default::default()
         };
-        let query_span = span!(Level::INFO, "save new subscriber into db");
-        let res = Subscription::insert(new_subscription)
-            .exec(&self.db)
-            .instrument(query_span)
-            .await;
+        let res = Subscription::insert(new_subscription).exec(&self.db).await;
         match res {
             Ok(record) => {
                 info!(record.last_insert_id, "newly created subscription id");
