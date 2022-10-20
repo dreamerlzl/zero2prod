@@ -1,4 +1,5 @@
 use poem::{listener::TcpListener, Server};
+use tracing::info;
 
 use zero2prod::configuration::get_configuration;
 use zero2prod::routes::default_route;
@@ -11,7 +12,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     let app_port = conf.app_port;
     let route = default_route(conf).await;
-    Server::new(TcpListener::bind(format!("127.0.0.1:{}", app_port)))
-        .run(route)
-        .await
+    let addr = format!("127.0.0.1:{}", app_port);
+    info!(addr, "zero2prod listening on");
+    Server::new(TcpListener::bind(addr)).run(route).await
 }
