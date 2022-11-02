@@ -1,5 +1,6 @@
 use config::{Config, Environment};
 use serde::Deserialize;
+use std::path::Path;
 
 #[derive(Deserialize, Debug)]
 #[allow(unused)]
@@ -20,9 +21,12 @@ pub struct RelationalDBSettings {
 }
 
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
+    let environment = std::env::var("APP__ENVIRONMENT").unwrap_or_else(|_| "test".to_owned());
+    let conf_path = Path::new("conf").join(environment);
+
     let conf = Config::builder()
         .set_default("log_level", Some("DEBUG"))?
-        .add_source(config::File::with_name("config/prod").required(false))
+        .add_source(config::File::with_name(conf_path.as_path().to_str().unwrap()).required(false))
         .add_source(
             Environment::with_prefix("app")
                 .try_parsing(true)
@@ -51,7 +55,7 @@ mod tests {
     use std::{env, io::Write, path::Path};
 
     use rand::{distributions::Alphanumeric, Rng};
-    use serial_test::{parallel, serial};
+    use serial_test::serial;
 
     use super::get_test_configuration;
 
@@ -65,7 +69,7 @@ mod tests {
 
     // just test Environment variables
     #[test]
-    #[parallel]
+    #[serial]
     #[ignore]
     fn test_env() {
         env::set_var("APP__APP_PORT", "8081");
@@ -94,7 +98,7 @@ mod tests {
 
     // create a temporary configuration.yml file
     #[test]
-    #[parallel]
+    #[serial]
     #[ignore]
     fn test_file() {
         // create a temporary configuration.yaml under $root/config/
