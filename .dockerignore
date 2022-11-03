@@ -1,0 +1,6 @@
+.dockerignore
+target/
+Dockerfile
+migration/
+.env
+.git
