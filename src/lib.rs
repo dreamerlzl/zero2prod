@@ -9,7 +9,7 @@ pub mod routes;
 
 pub fn setup_logger(log_level: &str) {
     let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_level));
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
     let formatting_layer = BunyanFormattingLayer::new("zero2prod".into(), std::io::stdout);
     let subscriber = Registry::default()
         .with(env_filter)
