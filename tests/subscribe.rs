@@ -14,7 +14,7 @@ async fn get_client_and_db() -> (TestClient<Route>, DatabaseConnection) {
     let conf = get_test_configuration("config/test").expect("fail to get conf");
     let sql = &conf.db;
     let db_url = format!(
-        "postgres://{}:{}@{}:{}/{}",
+        "postgres://{}:{:?}@{}:{}/{}",
         sql.username, sql.password, sql.host, sql.port, sql.name,
     );
     let db = Database::connect(db_url)

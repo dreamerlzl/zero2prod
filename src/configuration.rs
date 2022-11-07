@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use config::{Config, Environment};
+use secrecy::Secret;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -15,7 +16,7 @@ pub struct Configuration {
 #[allow(unused)]
 pub struct RelationalDBSettings {
     pub username: String,
-    pub password: String,
+    pub password: Secret<String>,
     pub port: u16,
     pub host: String,
     pub name: String,
@@ -23,7 +24,7 @@ pub struct RelationalDBSettings {
 
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
     let environment = std::env::var("APP__ENVIRONMENT").unwrap_or_else(|_| "test".to_owned());
-    let conf_path = Path::new("conf").join(environment);
+    let conf_path = Path::new("config").join(environment);
 
     let conf = Config::builder()
         .set_default("log_level", Some("DEBUG"))?
@@ -56,6 +57,7 @@ mod tests {
     use std::{env, io::Write, path::Path};
 
     use rand::{distributions::Alphanumeric, Rng};
+    use secrecy::ExposeSecret;
     use serial_test::serial;
 
     use super::get_test_configuration;
@@ -83,7 +85,7 @@ mod tests {
         let conf = get_test_configuration("config/test").expect("fail to get conf");
 
         assert_eq!(conf.db.username, "foo");
-        assert_eq!(conf.db.password, "bar");
+        assert_eq!(conf.db.password.expose_secret(), "bar");
         assert_eq!(conf.db.port, 1234);
         assert_eq!(conf.db.host, "localhost");
         assert_eq!(conf.db.name, "test");
@@ -122,7 +124,7 @@ db:
 
         let conf = get_test_configuration(&path_str).expect("fail to get conf");
         assert_eq!(conf.db.username, "foo");
-        assert_eq!(conf.db.password, "123");
+        assert_eq!(conf.db.password.expose_secret(), "123");
         assert_eq!(conf.db.port, 111);
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
@@ -157,7 +159,7 @@ db:
 
         let conf = get_test_configuration(&path_str).expect("fail to get conf");
         assert_eq!(conf.db.username, "foo");
-        assert_eq!(conf.db.password, "aaa");
+        assert_eq!(conf.db.password.expose_secret(), "aaa");
         assert_eq!(conf.db.port, 111);
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
