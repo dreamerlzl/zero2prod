@@ -5,7 +5,12 @@ use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 
 pub mod configuration;
 pub mod entities;
+mod migrator;
 pub mod routes;
+mod startup;
+
+pub use migrator::Migrator;
+pub use startup::get_database_connection;
 
 pub fn setup_logger(log_level: &str) {
     let env_filter =

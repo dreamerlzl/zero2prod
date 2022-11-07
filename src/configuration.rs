@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use config::{Config, Environment};
-use secrecy::Secret;
+use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
+use sqlx::postgres::{PgConnectOptions, PgSslMode};
 
 #[derive(Deserialize, Debug)]
 #[allow(unused)]
@@ -20,6 +21,26 @@ pub struct RelationalDBSettings {
     pub port: u16,
     pub host: String,
     pub name: String,
+    pub require_ssl: bool,
+}
+
+impl RelationalDBSettings {
+    // these two methods are only for pg
+    pub fn options_without_db(&self) -> PgConnectOptions {
+        let mut options = PgConnectOptions::new()
+            .host(&self.host)
+            .username(&self.username)
+            .password(&self.password.expose_secret())
+            .port(self.port);
+        if self.require_ssl {
+            options = options.ssl_mode(PgSslMode::Require);
+        }
+        options
+    }
+
+    pub fn options_with_db(&self) -> PgConnectOptions {
+        self.options_without_db().database(&self.name)
+    }
 }
 
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
@@ -81,6 +102,7 @@ mod tests {
         env::set_var("APP__DB__PORT", "1234");
         env::set_var("APP__DB__HOST", "localhost");
         env::set_var("APP__DB__NAME", "test");
+        env::set_var("APP__DB__REQUIRE_SSL", "TRUE");
 
         let conf = get_test_configuration("config/test").expect("fail to get conf");
 
@@ -90,6 +112,7 @@ mod tests {
         assert_eq!(conf.db.host, "localhost");
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app_port, 8081);
+        assert_eq!(conf.db.require_ssl, true);
 
         env::remove_var("APP__APP_PORT");
         env::remove_var("APP__DB__USERNAME");
@@ -97,6 +120,7 @@ mod tests {
         env::remove_var("APP__DB__PORT");
         env::remove_var("APP__DB__HOST");
         env::remove_var("APP__DB__NAME");
+        env::remove_var("APP__DB__REQUIRE_SSL");
     }
 
     // create a temporary configuration.yml file
@@ -117,6 +141,7 @@ db:
   password: 123
   host: bar
   port: 111
+  require_ssl: true
   name: test";
             file.write_all(content.as_bytes())
                 .expect("fail to write config content");
@@ -129,6 +154,7 @@ db:
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app_port, 1234);
+        assert_eq!(conf.db.require_ssl, true);
 
         remove_file(path).expect("fail to remove test config");
     }
@@ -149,6 +175,7 @@ db:
 db:
   username: foo
   host: bar
+  require_ssl: true
   name: test";
             file.write_all(content.as_bytes())
                 .expect("fail to write config content");
@@ -156,6 +183,7 @@ db:
         }
         env::set_var("APP__DB__PASSWORD", "aaa");
         env::set_var("APP__DB__PORT", "111");
+        env::set_var("APP__DB__REQUIRE_SSL", "FALSE");
 
         let conf = get_test_configuration(&path_str).expect("fail to get conf");
         assert_eq!(conf.db.username, "foo");
@@ -164,6 +192,7 @@ db:
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app_port, 1234);
+        assert_eq!(conf.db.require_ssl, false);
         remove_file(path).expect("fail to remove test config");
 
         env::remove_var("APP__DB__PASSWORD");
