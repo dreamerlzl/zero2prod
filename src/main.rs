@@ -1,6 +1,5 @@
 use poem::{listener::TcpListener, Server};
 use tracing::info;
-
 use zero2prod::configuration::get_configuration;
 use zero2prod::routes::default_route;
 use zero2prod::setup_logger;

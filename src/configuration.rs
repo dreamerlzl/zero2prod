@@ -1,6 +1,7 @@
+use std::path::Path;
+
 use config::{Config, Environment};
 use serde::Deserialize;
-use std::path::Path;
 
 #[derive(Deserialize, Debug)]
 #[allow(unused)]

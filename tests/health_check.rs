@@ -1,5 +1,4 @@
 use poem::{test::TestClient, Route};
-
 use zero2prod::routes::health::health_check;
 
 #[tokio::test]

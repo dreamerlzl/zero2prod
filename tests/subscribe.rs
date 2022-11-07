@@ -6,7 +6,6 @@ use poem::Route;
 use sea_orm::*;
 use tracing::error;
 use tracing_test::traced_test;
-
 use zero2prod::configuration::get_test_configuration;
 use zero2prod::entities::subscription;
 use zero2prod::routes::default_route;

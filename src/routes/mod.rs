@@ -1,14 +1,14 @@
 pub mod health;
 pub mod subscribe;
 
-use crate::configuration::Configuration;
 use poem::middleware::Tracing;
 use poem::{get, Route};
 use poem::{Endpoint, EndpointExt};
 use sea_orm::Database;
 use tracing::info;
 
-use health::health_check;
+use self::health::health_check;
+use crate::configuration::Configuration;
 
 pub async fn default_route(conf: Configuration) -> Route {
     let sql = &conf.db;
