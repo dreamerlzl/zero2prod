@@ -1,6 +1,5 @@
 use anyhow::Result;
 use poem::{listener::TcpListener, Server};
-use sea_orm_migration::prelude::*;
 use tracing::info;
 use zero2prod::configuration::get_configuration;
 use zero2prod::get_database_connection;

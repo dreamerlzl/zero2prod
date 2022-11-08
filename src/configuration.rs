@@ -30,7 +30,7 @@ impl RelationalDBSettings {
         let mut options = PgConnectOptions::new()
             .host(&self.host)
             .username(&self.username)
-            .password(&self.password.expose_secret())
+            .password(self.password.expose_secret())
             .port(self.port);
         if self.require_ssl {
             options = options.ssl_mode(PgSslMode::Require);
@@ -46,6 +46,9 @@ impl RelationalDBSettings {
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
     let environment = std::env::var("APP__ENVIRONMENT").unwrap_or_else(|_| "test".to_owned());
     let conf_path = Path::new("config").join(environment);
+    if !conf_path.exists() {
+        println!("{} not found!", conf_path.as_path().to_str().unwrap());
+    }
 
     let conf = Config::builder()
         .set_default("log_level", Some("DEBUG"))?
