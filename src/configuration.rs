@@ -4,6 +4,7 @@ use config::{Config, Environment};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
+use tracing::info;
 
 #[derive(Deserialize, Debug)]
 #[allow(unused)]
@@ -45,13 +46,10 @@ impl RelationalDBSettings {
 
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
     let environment = std::env::var("APP__ENVIRONMENT").unwrap_or_else(|_| "test".to_owned());
+    info!("using environment: {}", environment);
     let conf_path = Path::new("config").join(environment);
-    if !conf_path.exists() {
-        println!("{} not found!", conf_path.as_path().to_str().unwrap());
-    }
 
     let conf = Config::builder()
-        .set_default("log_level", Some("DEBUG"))?
         .add_source(config::File::with_name(conf_path.as_path().to_str().unwrap()).required(false))
         .add_source(
             Environment::with_prefix("app")

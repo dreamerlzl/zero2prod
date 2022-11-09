@@ -8,8 +8,9 @@ use zero2prod::setup_logger;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "DEBUG".into());
+    setup_logger(&log_level);
     let conf = get_configuration().expect("fail to read configuration");
-    setup_logger(conf.log_level.as_ref().unwrap());
 
     let app_port = conf.app_port;
     let db = get_database_connection(&conf).await?;
