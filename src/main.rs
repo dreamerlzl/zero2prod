@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
     let route = default_route(conf, db).await;
 
     // start the tcp listener
-    let addr = format!("127.0.0.1:{}", app_port);
+    let addr = format!("0.0.0.0:{}", app_port);
     info!(addr, "zero2prod listening on");
     Server::new(TcpListener::bind(addr)).run(route).await?;
     Ok(())
