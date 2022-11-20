@@ -4,6 +4,7 @@ use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 // use tracing_subscriber::fmt::format::FmtSpan;
 
 pub mod configuration;
+mod domain;
 pub mod entities;
 mod migrator;
 pub mod routes;

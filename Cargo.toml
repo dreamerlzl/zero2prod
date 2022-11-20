@@ -26,8 +26,8 @@ sqlx = { version = "0.6", default-features = false, features = ["postgres"] }
 tokio = { version = "1.21.0", features = ["full"] }
 tracing = "0.1.36"
 tracing-bunyan-formatter = "0.3.3"
-tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.15", features = ["json", "env-filter", "std"] }
+unicode-segmentation = "1.10.0"
 validator = { version = "0.16.0", features = ["derive"] }
 
 [dev-dependencies]

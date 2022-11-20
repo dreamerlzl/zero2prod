@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use poem::Endpoint;
 use poem_openapi::{
     payload::{Form, Json},
@@ -6,10 +8,12 @@ use poem_openapi::{
 use sea_orm::*;
 use serde::Deserialize;
 use tracing::{info, warn};
-use validator::Validate;
 
 use super::add_tracing;
-use crate::entities::{prelude::*, *};
+use crate::{
+    domain::{Email, UserName},
+    entities::{prelude::*, *},
+};
 
 pub struct SubscribeApi {
     db: DatabaseConnection,
@@ -40,28 +44,23 @@ impl SubscribeApi {
         name = "new subscription",
         fields(
             email=%form.0.email,
-            user=%form.0.user
+            user=%form.0.username
         )
     )]
     async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
-        if let Err(e) = form.0.validate() {
-            info!(error = e.to_string());
-            return CreateSubscriptionResponse::InvalidData(Json(InvalidData {
-                msg: e.to_string(),
-            }));
-        }
-        let new_subscription = subscription::ActiveModel {
-            name: ActiveValue::Set(form.0.user),
-            email: ActiveValue::Set(form.0.email),
-            ..Default::default()
+        let new_subscriber = match NewSubscriber::try_from(form) {
+            Err(e) => {
+                return CreateSubscriptionResponse::InvalidData(Json(InvalidData {
+                    msg: e.to_string(),
+                }));
+            }
+            Ok(new_subscriber) => new_subscriber,
         };
-        let res = Subscription::insert(new_subscription).exec(&self.db).await;
+        let res = self.insert_subscriber(new_subscriber).await;
         match res {
-            Ok(record) => {
-                info!(record.last_insert_id, "newly created subscription id");
-                CreateSubscriptionResponse::Ok(Json(CreateSuccess {
-                    id: record.last_insert_id,
-                }))
+            Ok(last_insert_id) => {
+                info!(last_insert_id, "newly created subscription id");
+                CreateSubscriptionResponse::Ok(Json(CreateSuccess { id: last_insert_id }))
             }
             Err(e) => {
                 warn!(error = e.to_string());
@@ -69,13 +68,44 @@ impl SubscribeApi {
             }
         }
     }
+
+    #[tracing::instrument(skip(self))]
+    async fn insert_subscriber(
+        &self,
+        new_subscriber: NewSubscriber,
+    ) -> Result<i32, sea_orm::DbErr> {
+        let new_subscription = subscription::ActiveModel {
+            name: ActiveValue::Set(new_subscriber.username.to_string()),
+            email: ActiveValue::Set(new_subscriber.email.to_string()),
+            ..Default::default()
+        };
+        let res = Subscription::insert(new_subscription)
+            .exec(&self.db)
+            .await?;
+        Ok(res.last_insert_id)
+    }
 }
 
-#[derive(Deserialize, Debug, Object, Validate)]
+#[derive(Deserialize, Debug, Object)]
 struct SubscribeFormData {
-    user: String,
-    #[validate(email)]
+    username: String,
     email: String,
+}
+
+#[derive(Debug)]
+struct NewSubscriber {
+    username: UserName,
+    email: Email,
+}
+
+impl TryFrom<Form<SubscribeFormData>> for NewSubscriber {
+    type Error = String;
+    fn try_from(form: Form<SubscribeFormData>) -> Result<Self, Self::Error> {
+        Ok(NewSubscriber {
+            username: UserName::parse(&form.0.username)?,
+            email: Email::parse(&form.0.email)?,
+        })
+    }
 }
 
 #[derive(Object)]

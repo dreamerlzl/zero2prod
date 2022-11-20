@@ -42,7 +42,10 @@ async fn get_client_and_db() -> Result<(TestClient<Route>, DatabaseConnection)> 
 #[serial]
 async fn subscribe_returns_a_200_for_valid_form_data() -> Result<()> {
     let (cli, db) = get_client_and_db().await?;
-    let valid_data = ["user=lzl&email=lzl2@gmail.com", "user=foo&email=bar@qq.com"];
+    let valid_data = [
+        "username=lzl&email=lzl2@gmail.com",
+        "username=foo&email=bar@qq.com",
+    ];
 
     for data in valid_data.into_iter() {
         let resp = cli
