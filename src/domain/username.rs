@@ -23,10 +23,48 @@ impl UserName {
         }
         Ok(())
     }
+
+    pub fn inner(self) -> String {
+        self.0
+    }
 }
 
 impl ToString for UserName {
     fn to_string(&self) -> String {
         self.0.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_username() {
+        assert!(UserName::validate("").is_err());
+    }
+
+    #[test]
+    fn test_length() {
+        assert!(UserName::validate(&"ά".repeat(256)).is_ok());
+        assert!(UserName::validate(&"ά".repeat(257)).is_err());
+    }
+
+    #[test]
+    fn whitespaces_only() {
+        assert!(UserName::validate(&" ".repeat(3)).is_err());
+    }
+
+    #[test]
+    fn empty_string() {
+        assert!(UserName::validate("").is_err());
+    }
+
+    #[test]
+    fn valid_names() {
+        let names = ["Wright Lin", "JustForYou", "a   b c@"];
+        for name in names {
+            assert!(UserName::validate(name).is_ok());
+        }
     }
 }

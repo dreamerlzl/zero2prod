@@ -6,15 +6,17 @@ use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use tracing::info;
 
-#[derive(Deserialize, Debug)]
+use crate::domain::Email;
+
+#[derive(Deserialize, Debug, Clone)]
 #[allow(unused)]
 pub struct Configuration {
     pub app_port: u16,
-    pub log_level: Option<String>,
     pub db: RelationalDBSettings,
+    pub email_client: EmailClientSettings,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[allow(unused)]
 pub struct RelationalDBSettings {
     pub username: String,
@@ -44,6 +46,24 @@ impl RelationalDBSettings {
     }
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct EmailClientSettings {
+    pub api_base_url: String,
+    pub sender_email: String,
+    pub authorization_token: String,
+    pub timeout_milliseconds: u64,
+}
+
+impl EmailClientSettings {
+    pub fn sender(&self) -> Result<Email, String> {
+        Email::parse(self.sender_email.clone())
+    }
+
+    pub fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.timeout_milliseconds)
+    }
+}
+
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
     let environment = std::env::var("APP__ENVIRONMENT").unwrap_or_else(|_| "test".to_owned());
     info!("using environment: {}", environment);
@@ -62,7 +82,6 @@ pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
 
 pub fn get_test_configuration(path: &str) -> Result<Configuration, config::ConfigError> {
     let conf = Config::builder()
-        .set_default("log_level", Some("DEBUG"))?
         .add_source(config::File::with_name(path).required(false))
         .add_source(
             Environment::with_prefix("app")
@@ -137,6 +156,9 @@ mod tests {
         {
             let mut file = File::create(&path).expect("fail to create the test configuration yaml");
             let content = "app_port: 1234
+email_client:
+  api_base_url: \"https://api.postmarkapp.com\"
+  sender_email: \"something@gmail.com\"
 db:
   username: foo
   password: 123
@@ -156,6 +178,11 @@ db:
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app_port, 1234);
         assert_eq!(conf.db.require_ssl, true);
+        assert_eq!(conf.email_client.sender_email, "something@gmail.com");
+        assert_eq!(
+            conf.email_client.api_base_url,
+            "https://api.postmarkapp.com"
+        );
 
         remove_file(path).expect("fail to remove test config");
     }

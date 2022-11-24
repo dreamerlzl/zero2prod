@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{convert::TryFrom, sync::Arc};
 
 use poem::Endpoint;
 use poem_openapi::{
@@ -11,27 +11,30 @@ use tracing::{info, warn};
 
 use super::add_tracing;
 use crate::{
+    context::Context,
     domain::{Email, UserName},
     entities::{prelude::*, *},
 };
 
 pub struct SubscribeApi {
-    db: DatabaseConnection,
+    context: Arc<Context>,
 }
 
 pub fn get_api_service(
-    db: DatabaseConnection,
+    context: Context,
     server_url: &str,
 ) -> (OpenApiService<SubscribeApi, ()>, impl Endpoint) {
     let api_service =
-        OpenApiService::new(SubscribeApi::new(db), "subscribe", "0.1").server(server_url);
+        OpenApiService::new(SubscribeApi::new(context), "subscribe", "0.1").server(server_url);
     let ui = api_service.swagger_ui();
     (api_service, ui)
 }
 
 impl SubscribeApi {
-    pub fn new(db: DatabaseConnection) -> Self {
-        Self { db }
+    pub fn new(context: Context) -> Self {
+        Self {
+            context: Arc::new(context),
+        }
     }
 }
 
@@ -48,6 +51,7 @@ impl SubscribeApi {
         )
     )]
     async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
+        self.context.email_client.hello().await;
         let new_subscriber = match NewSubscriber::try_from(form) {
             Err(e) => {
                 return CreateSubscriptionResponse::InvalidData(Json(InvalidData {
@@ -75,12 +79,12 @@ impl SubscribeApi {
         new_subscriber: NewSubscriber,
     ) -> Result<i32, sea_orm::DbErr> {
         let new_subscription = subscription::ActiveModel {
-            name: ActiveValue::Set(new_subscriber.username.to_string()),
-            email: ActiveValue::Set(new_subscriber.email.to_string()),
+            name: ActiveValue::Set(new_subscriber.username.inner()),
+            email: ActiveValue::Set(new_subscriber.email.inner()),
             ..Default::default()
         };
         let res = Subscription::insert(new_subscription)
-            .exec(&self.db)
+            .exec(&self.context.db)
             .await?;
         Ok(res.last_insert_id)
     }
@@ -103,7 +107,7 @@ impl TryFrom<Form<SubscribeFormData>> for NewSubscriber {
     fn try_from(form: Form<SubscribeFormData>) -> Result<Self, Self::Error> {
         Ok(NewSubscriber {
             username: UserName::parse(&form.0.username)?,
-            email: Email::parse(&form.0.email)?,
+            email: Email::parse(form.0.email.clone())?,
         })
     }
 }

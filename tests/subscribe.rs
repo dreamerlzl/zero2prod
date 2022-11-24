@@ -10,18 +10,16 @@ use serial_test::serial;
 use tracing::error;
 use tracing_test::traced_test;
 use zero2prod::configuration::get_test_configuration;
+use zero2prod::context::Context as RouteContext;
 use zero2prod::entities::subscription;
-use zero2prod::get_database_connection;
 use zero2prod::routes::default_route;
 use zero2prod::Migrator;
 
 #[traced_test]
 async fn get_client_and_db() -> Result<(TestClient<Route>, DatabaseConnection)> {
     let conf = get_test_configuration("config/test").expect("fail to get conf");
-    let db = get_database_connection(&conf)
-        .await
-        .context("fail to get db conn")?;
-
+    let context = RouteContext::new(conf.clone()).await?;
+    let db = context.db.clone();
     // migrate db
     let schema_manager = SchemaManager::new(&db);
     Migrator::refresh(&db)
@@ -33,7 +31,7 @@ async fn get_client_and_db() -> Result<(TestClient<Route>, DatabaseConnection)> 
         .await
         .context("fail to execute table existence check")?);
 
-    let app = default_route(conf, db.clone()).await;
+    let app = default_route(conf, context).await;
     Ok((TestClient::new(app), db))
 }
 

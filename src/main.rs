@@ -2,7 +2,7 @@ use anyhow::Result;
 use poem::{listener::TcpListener, Server};
 use tracing::info;
 use zero2prod::configuration::get_configuration;
-use zero2prod::get_database_connection;
+use zero2prod::context::Context;
 use zero2prod::routes::default_route;
 use zero2prod::setup_logger;
 
@@ -13,10 +13,10 @@ async fn main() -> Result<()> {
     let conf = get_configuration().expect("fail to read configuration");
 
     let app_port = conf.app_port;
-    let db = get_database_connection(&conf).await?;
+    let context = Context::new(conf.clone()).await?;
 
     // set routing
-    let route = default_route(conf, db).await;
+    let route = default_route(conf, context).await;
 
     // start the tcp listener
     let addr = format!("0.0.0.0:{}", app_port);
