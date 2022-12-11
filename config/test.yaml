@@ -1,0 +1,14 @@
+app_port: 8081
+db:
+  host: localhost
+  name: newsletter
+  port: 5432
+  username: postgres
+  password: password
+  require_ssl: false
+
+email_client:
+  api_base_url: https://example.com
+  sender_email: buffoonlzl0@gmail.com
+  authorization_token: 123
+  timeout_milliseconds: 100
