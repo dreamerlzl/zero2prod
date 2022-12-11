@@ -3,6 +3,8 @@
   - [the issue](https://github.com/mehcode/config-rs/issues/357)
 
 # run
-- migration must be on the root dir
-- pgcli is not required
+- `sea_orm`'s migration must be on the root dir
+
+# test
 - remember to shut down VPN/HTTP_PROXY when running mockwire test
+- to show tracing during test, use `cargo test -- -nocapture`

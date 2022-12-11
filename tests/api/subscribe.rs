@@ -1,7 +1,11 @@
 use std::error::Error;
 
 use anyhow::Result;
-use poem::http::StatusCode;
+use poem::{
+    http::StatusCode,
+    test::{TestClient, TestResponse},
+    Route,
+};
 use sea_orm::*;
 use serial_test::serial;
 use tracing::error;
@@ -21,12 +25,7 @@ async fn subscribe_returns_a_200_for_valid_form_data() -> Result<()> {
     ];
 
     for data in valid_data.into_iter() {
-        let resp = cli
-            .post("/subscription")
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(data)
-            .send()
-            .await;
+        let resp = post_subscription(&cli, data).await;
         resp.assert_status(StatusCode::OK);
         let resp_json = resp.json().await;
         let id = resp_json.value().object().get("id").i64() as i32;
@@ -49,13 +48,16 @@ async fn subscribe_returns_400_for_invalid_data() -> Result<()> {
     let invalid_data = ["", "name=lzl", "email=aaa", "name=lzl&email=aaa", "foobar"];
 
     for data in invalid_data.into_iter() {
-        let resp = cli
-            .post("/subscription")
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(data)
-            .send()
-            .await;
+        let resp = post_subscription(&cli, data).await;
         resp.assert_status(StatusCode::BAD_REQUEST);
     }
     Ok(())
+}
+
+async fn post_subscription(cli: &TestClient<Route>, data: &'static str) -> TestResponse {
+    cli.post("/subscription")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(data)
+        .send()
+        .await
 }
