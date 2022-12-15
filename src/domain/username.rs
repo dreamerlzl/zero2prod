@@ -29,6 +29,12 @@ impl UserName {
     }
 }
 
+impl AsRef<str> for UserName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl ToString for UserName {
     fn to_string(&self) -> String {
         self.0.clone()

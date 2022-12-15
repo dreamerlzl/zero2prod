@@ -32,3 +32,9 @@ impl ToString for Email {
         self.0.clone()
     }
 }
+
+impl AsRef<str> for Email {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}

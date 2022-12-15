@@ -4,7 +4,7 @@ use sea_orm_migration::prelude::*;
 pub struct Migration;
 
 #[derive(Iden)]
-enum Subscription {
+pub enum Subscriptions {
     Table,
     Id,
     Email,
@@ -19,24 +19,24 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(Subscription::Table)
+                    .table(Subscriptions::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(Subscription::Id)
+                        ColumnDef::new(Subscriptions::Id)
                             .integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
                     .col(
-                        ColumnDef::new(Subscription::Email)
+                        ColumnDef::new(Subscriptions::Email)
                             .string()
                             .not_null()
                             .unique_key(),
                     )
-                    .col(ColumnDef::new(Subscription::Name).string().not_null())
+                    .col(ColumnDef::new(Subscriptions::Name).string().not_null())
                     .col(
-                        ColumnDef::new(Subscription::SubscribedAt)
+                        ColumnDef::new(Subscriptions::SubscribedAt)
                             .timestamp_with_time_zone()
                             .extra("DEFAULT CURRENT_TIMESTAMP".to_string())
                             .not_null(),
@@ -48,7 +48,7 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(Subscription::Table).to_owned())
+            .drop_table(Table::drop().table(Subscriptions::Table).to_owned())
             .await
     }
 }

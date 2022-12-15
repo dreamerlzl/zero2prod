@@ -8,11 +8,9 @@ pub mod context;
 pub mod domain;
 pub mod email_client;
 pub mod entities;
-mod migrator;
 pub mod routes;
 mod startup;
 
-pub use migrator::Migrator;
 pub use startup::{get_database_connection, get_email_client};
 
 pub fn setup_logger(log_level: &str) {

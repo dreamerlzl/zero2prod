@@ -13,7 +13,7 @@ use super::add_tracing;
 use crate::{
     context::Context,
     domain::{Email, UserName},
-    entities::{prelude::*, *},
+    entities::{prelude::*, subscriptions},
 };
 
 pub struct SubscribeApi {
@@ -51,18 +51,24 @@ impl SubscribeApi {
         )
     )]
     async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
-        self.context.email_client.hello().await;
         let new_subscriber = match NewSubscriber::try_from(form) {
             Err(e) => {
-                return CreateSubscriptionResponse::InvalidData(Json(InvalidData {
-                    msg: e.to_string(),
-                }));
+                return CreateSubscriptionResponse::InvalidData(Json(InvalidData { msg: e }));
             }
             Ok(new_subscriber) => new_subscriber,
         };
+        let recipient = new_subscriber.email.clone();
         let res = self.insert_subscriber(new_subscriber).await;
         match res {
             Ok(last_insert_id) => {
+                let email_client = self.context.email_client.clone();
+                if let Err(e) = email_client
+                    .send_email(&recipient, "new subscriber", "", "")
+                    .await
+                {
+                    warn!(error = e.to_string());
+                    return CreateSubscriptionResponse::ServerErr;
+                }
                 info!(last_insert_id, "newly created subscription id");
                 CreateSubscriptionResponse::Ok(Json(CreateSuccess { id: last_insert_id }))
             }
@@ -78,12 +84,13 @@ impl SubscribeApi {
         &self,
         new_subscriber: NewSubscriber,
     ) -> Result<i32, sea_orm::DbErr> {
-        let new_subscription = subscription::ActiveModel {
+        let new_subscription = subscriptions::ActiveModel {
             name: ActiveValue::Set(new_subscriber.username.inner()),
             email: ActiveValue::Set(new_subscriber.email.inner()),
+            status: ActiveValue::Set("confirmed".to_owned()),
             ..Default::default()
         };
-        let res = Subscription::insert(new_subscription)
+        let res = Subscriptions::insert(new_subscription)
             .exec(&self.context.db)
             .await?;
         Ok(res.last_insert_id)

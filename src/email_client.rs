@@ -40,9 +40,9 @@ impl EmailClient {
         let request_body = SendEmailRequest {
             from: &self.sender,
             to: recipient,
-            subject: &subject,
-            html_body: &html_body,
-            text_body: &text_body,
+            subject,
+            html_body,
+            text_body,
         };
         let resp = self
             .http_client
