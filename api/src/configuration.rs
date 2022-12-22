@@ -11,9 +11,16 @@ use crate::domain::Email;
 #[derive(Deserialize, Debug, Clone)]
 #[allow(unused)]
 pub struct Configuration {
-    pub app_port: u16,
+    pub app: AppSettings,
     pub db: RelationalDBSettings,
     pub email_client: EmailClientSettings,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[allow(unused)]
+pub struct AppSettings {
+    pub port: u16,
+    pub base_url: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -47,6 +54,7 @@ impl RelationalDBSettings {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(unused)]
 pub struct EmailClientSettings {
     pub api_base_url: String,
     pub sender_email: String,
@@ -68,8 +76,12 @@ pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
     let environment = std::env::var("APP__ENVIRONMENT").unwrap_or_else(|_| "test".to_owned());
     info!("using environment: {}", environment);
     let conf_path = Path::new("config").join(environment);
+    let default_conf_path = Path::new("config").join("default");
 
     let conf = Config::builder()
+        .add_source(
+            config::File::with_name(default_conf_path.as_path().to_str().unwrap()).required(false),
+        )
         .add_source(config::File::with_name(conf_path.as_path().to_str().unwrap()).required(false))
         .add_source(
             Environment::with_prefix("app")
@@ -81,7 +93,11 @@ pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
 }
 
 pub fn get_test_configuration(path: &str) -> Result<Configuration, config::ConfigError> {
+    let default_conf_path = Path::new("config").join("default");
     let conf = Config::builder()
+        .add_source(
+            config::File::with_name(default_conf_path.as_path().to_str().unwrap()).required(false),
+        )
         .add_source(config::File::with_name(path).required(false))
         .add_source(
             Environment::with_prefix("app")
@@ -131,7 +147,7 @@ mod tests {
         assert_eq!(conf.db.port, 1234);
         assert_eq!(conf.db.host, "localhost");
         assert_eq!(conf.db.name, "test");
-        assert_eq!(conf.app_port, 8081);
+        assert_eq!(conf.app.port, 8081);
         assert_eq!(conf.db.require_ssl, true);
 
         env::remove_var("APP__APP_PORT");
@@ -155,10 +171,14 @@ mod tests {
         let path = Path::new(&path_str);
         {
             let mut file = File::create(&path).expect("fail to create the test configuration yaml");
-            let content = "app_port: 1234
+            let content = "
+app:
+  port: 1234
+  base_url: 'abc'
 email_client:
   api_base_url: \"https://api.postmarkapp.com\"
   sender_email: \"something@gmail.com\"
+  timeout_milliseconds: 10
 db:
   username: foo
   password: 123
@@ -176,7 +196,7 @@ db:
         assert_eq!(conf.db.port, 111);
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
-        assert_eq!(conf.app_port, 1234);
+        assert_eq!(conf.app.port, 1234);
         assert_eq!(conf.db.require_ssl, true);
         assert_eq!(conf.email_client.sender_email, "something@gmail.com");
         assert_eq!(
@@ -199,7 +219,15 @@ db:
         let path = Path::new(&path_str);
         {
             let mut file = File::create(&path).expect("fail to create the test configuration yaml");
-            let content = "app_port: 1234
+            let content = "
+app:
+  port: 1234
+  base_url: 'http://127.0.0.1'
+email_client:
+  api_base_url: https://example.com
+  sender_email: buffoonlzl0@gmail.com
+  authorization_token: 123
+  timeout_milliseconds: 100
 db:
   username: foo
   host: bar
@@ -219,7 +247,7 @@ db:
         assert_eq!(conf.db.port, 111);
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
-        assert_eq!(conf.app_port, 1234);
+        assert_eq!(conf.app.port, 1234);
         assert_eq!(conf.db.require_ssl, false);
         remove_file(path).expect("fail to remove test config");
 

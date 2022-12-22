@@ -1,3 +1,0 @@
-app_port: 8081
-db:
-  require_ssl: true

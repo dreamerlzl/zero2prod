@@ -1,0 +1,111 @@
+use anyhow::Result;
+use poem::http::StatusCode;
+use sea_orm::*;
+use wiremock::Mock;
+use wiremock::{matchers::path, ResponseTemplate};
+use zero2prod_api::entities::subscriptions;
+use zero2prod_api::routes::subscriptions::DEFAULT_CONFIRM_STATUS;
+
+use crate::api::helpers::get_test_app;
+use crate::api::helpers::{delete_subscriber_by_id, email, get_first_link, post_subscription};
+
+#[tokio::test]
+async fn subscribe_returns_a_200_for_valid_form_data() -> Result<()> {
+    let test_app = get_test_app().await?;
+    let cli = &test_app.cli;
+    let db = &test_app.db;
+    Mock::given(path("/email"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&test_app.email_server)
+        .await;
+    let valid_data = [
+        "username=lzl&email=lzl2@gmail.com",
+        "username=foo&email=bar@qq.com",
+    ];
+
+    for data in valid_data.into_iter() {
+        let resp = post_subscription(&cli, data).await;
+        resp.assert_status(StatusCode::OK);
+        let resp_json = resp.json().await;
+        let id = resp_json.value().object().get("id").i64() as i32;
+        delete_subscriber_by_id(&db, id).await?;
+        //let new_user = subscriptions::ActiveModel {
+        //    id: ActiveValue::Set(id),
+        //    ..Default::default()
+        //};
+        //if let Err(e) = new_user.delete(&db).await {
+        //    error!(error = e.source(), id = id, "fail to delete test data");
+        //}
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscribe_persists_the_new_subscriber() -> Result<()> {
+    let test_app = get_test_app().await?;
+    let cli = &test_app.cli;
+    let db = &test_app.db;
+    Mock::given(path("/email"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&test_app.email_server)
+        .await;
+    let data = "username=lzl&email=bar@qq.com";
+    let resp = post_subscription(&cli, data).await;
+    let resp_json = resp.json().await;
+    let id = resp_json.value().object().get("id").i64() as i32;
+    let new_user = subscriptions::Entity::find_by_id(id).one(db).await?;
+    assert!(new_user.is_some());
+    let new_user = new_user.unwrap();
+    assert_eq!(new_user.email, "bar@qq.com");
+    assert_eq!(new_user.name, "lzl");
+    assert_eq!(new_user.status, DEFAULT_CONFIRM_STATUS);
+    delete_subscriber_by_id(&db, id).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscribe_returns_400_for_invalid_data() -> Result<()> {
+    let test_app = get_test_app().await?;
+    let cli = &test_app.cli;
+    let invalid_data = [
+        "",
+        "username=lzl",
+        "email=aaa",
+        "username=lzl&email=aaa",
+        "foobar",
+    ];
+
+    for data in invalid_data.into_iter() {
+        let resp = post_subscription(&cli, data).await;
+        resp.assert_status(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn subscribe_returns_a_confirmation_email() -> Result<()> {
+    let test_app = get_test_app().await?;
+
+    Mock::given(path("/email"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let db = &test_app.db;
+    let cli = &test_app.cli;
+    let data = format!("username=lin&email={}", email().to_string());
+    let resp = post_subscription(&cli, data).await;
+    resp.assert_status(StatusCode::OK);
+    let resp_json = resp.json().await;
+    let id = resp_json.value().object().get("id").i64() as i32;
+    delete_subscriber_by_id(&db, id).await?;
+    let email_request = test_app.email_server.received_requests().await.unwrap();
+
+    let body: serde_json::Value = serde_json::from_slice(&email_request[0].body).unwrap();
+    let html_link = get_first_link(&body["HtmlBody"].as_str().unwrap());
+    let text_link = get_first_link(&body["TextBody"].as_str().unwrap());
+    assert_eq!(html_link, text_link);
+
+    Ok(())
+}

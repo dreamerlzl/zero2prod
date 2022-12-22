@@ -2,6 +2,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 use poem::Endpoint;
 use poem_openapi::{
+    param::Query,
     payload::{Form, Json},
     ApiResponse, Object, OpenApi, OpenApiService,
 };
@@ -16,32 +17,64 @@ use crate::{
     entities::{prelude::*, subscriptions},
 };
 
-pub struct SubscribeApi {
+pub const DEFAULT_CONFIRM_STATUS: &'static str = "pending_confirmed";
+
+pub struct Api {
     context: Arc<Context>,
 }
 
 pub fn get_api_service(
-    context: Context,
+    context: Arc<Context>,
     server_url: &str,
-) -> (OpenApiService<SubscribeApi, ()>, impl Endpoint) {
-    let api_service =
-        OpenApiService::new(SubscribeApi::new(context), "subscribe", "0.1").server(server_url);
+) -> (OpenApiService<Api, ()>, impl Endpoint) {
+    let api_service = OpenApiService::new(Api::new(context), "subscribe", "0.1").server(server_url);
     let ui = api_service.swagger_ui();
     (api_service, ui)
 }
 
-impl SubscribeApi {
-    pub fn new(context: Context) -> Self {
-        Self {
-            context: Arc::new(context),
-        }
+impl Api {
+    pub fn new(context: Arc<Context>) -> Self {
+        Self { context }
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn insert_subscriber(
+        &self,
+        new_subscriber: NewSubscriber,
+    ) -> Result<i32, sea_orm::DbErr> {
+        let new_subscription = subscriptions::ActiveModel {
+            name: ActiveValue::Set(new_subscriber.username.inner()),
+            email: ActiveValue::Set(new_subscriber.email.inner()),
+            status: ActiveValue::Set(DEFAULT_CONFIRM_STATUS.to_owned()),
+            ..Default::default()
+        };
+        let res = Subscriptions::insert(new_subscription)
+            .exec(&self.context.db)
+            .await?;
+        Ok(res.last_insert_id)
+    }
+
+    async fn send_subscription_email(
+        &self,
+        recipient: Email,
+    ) -> Result<reqwest::StatusCode, reqwest::Error> {
+        let confirm_link = format!("{}/subscriptions/confirm", self.context.base_url);
+        self.context
+            .email_client
+            .send_email(
+                &recipient,
+                "welcome new subscriber",
+                &format!("<a href=\"{}\">here</a>", confirm_link),
+                &format!("{}", confirm_link),
+            )
+            .await
     }
 }
 
 #[OpenApi]
-impl SubscribeApi {
+impl Api {
     // make a subscription
-    #[oai(path = "/subscription", method = "post", transform = "add_tracing")]
+    #[oai(path = "/", method = "post", transform = "add_tracing")]
     #[tracing::instrument(
         skip(self, form),
         name = "new subscription",
@@ -61,11 +94,7 @@ impl SubscribeApi {
         let res = self.insert_subscriber(new_subscriber).await;
         match res {
             Ok(last_insert_id) => {
-                let email_client = self.context.email_client.clone();
-                if let Err(e) = email_client
-                    .send_email(&recipient, "new subscriber", "", "")
-                    .await
-                {
+                if let Err(e) = self.send_subscription_email(recipient).await {
                     warn!(error = e.to_string());
                     return CreateSubscriptionResponse::ServerErr;
                 }
@@ -79,21 +108,10 @@ impl SubscribeApi {
         }
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn insert_subscriber(
-        &self,
-        new_subscriber: NewSubscriber,
-    ) -> Result<i32, sea_orm::DbErr> {
-        let new_subscription = subscriptions::ActiveModel {
-            name: ActiveValue::Set(new_subscriber.username.inner()),
-            email: ActiveValue::Set(new_subscriber.email.inner()),
-            status: ActiveValue::Set("confirmed".to_owned()),
-            ..Default::default()
-        };
-        let res = Subscriptions::insert(new_subscription)
-            .exec(&self.context.db)
-            .await?;
-        Ok(res.last_insert_id)
+    #[oai(path = "/confirm", method = "get", transform = "add_tracing")]
+    #[tracing::instrument(skip(self, token), name = "new subscription confirm")]
+    async fn confirm(&self, token: Query<String>) -> ConfirmSubscriptionResponse {
+        ConfirmSubscriptionResponse::Ok
     }
 }
 
@@ -139,4 +157,10 @@ enum CreateSubscriptionResponse {
 
     #[oai(status = 500)]
     ServerErr,
+}
+
+#[derive(ApiResponse)]
+enum ConfirmSubscriptionResponse {
+    #[oai(status = 200)]
+    Ok,
 }
