@@ -1,22 +1,22 @@
 use anyhow::Result;
 use poem::http::StatusCode;
+use sqlx::{Pool, Postgres};
 use wiremock::{matchers::path, Mock, ResponseTemplate};
 
-use crate::api::helpers::get_test_app;
-use crate::api::helpers::{delete_subscriber_by_id, email, get_first_link, post_subscription};
+use crate::api::helpers::{email, get_first_link, get_test_app, post_subscription};
 
-#[tokio::test]
-async fn confirmations_without_token_rejected_with_400() -> Result<()> {
-    let app = get_test_app().await?;
+#[sqlx::test]
+async fn confirmations_without_token_rejected_with_400(pool: Pool<Postgres>) -> Result<()> {
+    let app = get_test_app(pool).await?;
     let cli = &app.cli;
     let resp = cli.get("/subscriptions/confirm").send().await;
     resp.assert_status(StatusCode::BAD_REQUEST);
     Ok(())
 }
 
-#[tokio::test]
-async fn subscribe_and_then_confirm() -> Result<()> {
-    let app = get_test_app().await?;
+#[sqlx::test]
+async fn subscribe_and_then_confirm(pool: Pool<Postgres>) -> Result<()> {
+    let app = get_test_app(pool).await?;
     Mock::given(path("/email"))
         .respond_with(ResponseTemplate::new(200))
         .expect(1)
@@ -26,9 +26,6 @@ async fn subscribe_and_then_confirm() -> Result<()> {
     let data = format!("username=lin&email={}", email().to_string());
     let resp = post_subscription(&app.cli, data).await;
     resp.assert_status(StatusCode::OK);
-    // let resp_json = resp.json().await;
-    // later we use it to clean the user info
-    // let id = resp_json.value().object().get("id").i64() as i32;
 
     let email_request = app.email_server.received_requests().await.unwrap();
     let body: serde_json::Value = serde_json::from_slice(&email_request[0].body).unwrap();
