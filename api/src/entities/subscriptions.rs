@@ -14,12 +14,21 @@ pub struct Model {
     pub status: String,
 }
 
-#[derive(Copy, Clone, Debug, EnumIter)]
-pub enum Relation {}
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::subscription_tokens::Entity",
+        from = "Column::Id",
+        to = "super::subscription_tokens::Column::SubscriberId",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    SubscriptionTokens,
+}
 
-impl RelationTrait for Relation {
-    fn def(&self) -> RelationDef {
-        panic!("No RelationDef")
+impl Related<super::subscription_tokens::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::SubscriptionTokens.def()
     }
 }
 

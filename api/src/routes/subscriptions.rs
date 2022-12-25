@@ -10,13 +10,13 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use sea_orm::{prelude::Uuid, *};
 use serde::Deserialize;
-use tracing::warn;
+use tracing::{error, warn};
 
 use super::add_tracing;
 use crate::{
     context::Context,
     domain::{Email, UserName},
-    entities::{prelude::*, subscriptions},
+    entities::{prelude::*, subscription_tokens, subscriptions},
 };
 
 pub struct Api {
@@ -55,13 +55,29 @@ impl Api {
         Ok(res.last_insert_id)
     }
 
+    async fn store_subscription_token(
+        &self,
+        subscriber_id: Uuid,
+        token: String,
+    ) -> Result<(), sea_orm::DbErr> {
+        let new_subscription_token = subscription_tokens::ActiveModel {
+            subscriber_id: ActiveValue::Set(subscriber_id),
+            subscription_token: ActiveValue::Set(token),
+        };
+        _ = SubscriptionTokens::insert(new_subscription_token)
+            .exec(&self.context.db)
+            .await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
     async fn send_subscription_email(
         &self,
         recipient: Email,
         token: &str,
     ) -> Result<reqwest::StatusCode, reqwest::Error> {
         let confirm_link = format!(
-            "{}/subscriptions/confirm?subscription_token={}",
+            "{}/subscriptions/confirm?token={}",
             self.context.base_url, token
         );
         self.context
@@ -101,6 +117,13 @@ impl Api {
             Ok(last_insert_id) => {
                 let subscription_token = generate_subscription_token();
                 if let Err(e) = self
+                    .store_subscription_token(last_insert_id, subscription_token.clone())
+                    .await
+                {
+                    warn!(error = e.to_string());
+                    return CreateSubscriptionResponse::ServerErr;
+                }
+                if let Err(e) = self
                     .send_subscription_email(recipient, &subscription_token)
                     .await
                 {
@@ -121,7 +144,55 @@ impl Api {
     #[oai(path = "/confirm", method = "get", transform = "add_tracing")]
     #[tracing::instrument(skip(self, token), name = "new subscription confirm")]
     async fn confirm(&self, token: Query<String>) -> ConfirmSubscriptionResponse {
-        ConfirmSubscriptionResponse::Ok
+        let subscription_token = token.0.clone();
+        let subscriber_status = SubscriptionTokens::find()
+            .filter(subscription_tokens::Column::SubscriptionToken.eq(subscription_token))
+            .one(&self.context.db)
+            .await;
+        match subscriber_status {
+            Ok(Some(subscriber_status)) => {
+                let subscriber_id = subscriber_status.subscriber_id;
+                let subscriber = Subscriptions::find_by_id(subscriber_id)
+                    .one(&self.context.db)
+                    .await;
+                match subscriber {
+                    Ok(Some(subscriber)) => {
+                        let mut subscriber: subscriptions::ActiveModel = subscriber.into();
+                        subscriber.status = Set(ConfirmStatus::Confirmed.to_string());
+                        if let Err(e) = subscriber.update(&self.context.db).await {
+                            warn!(error = e.to_string(), "fail to update user confirm status");
+                            ConfirmSubscriptionResponse::ServerErr
+                        } else {
+                            ConfirmSubscriptionResponse::Ok
+                        }
+                    }
+                    Ok(None) => {
+                        error!(
+                            subscriber_id = subscriber_id.to_string(),
+                            "fail to find subscriber despite foreign key contraint"
+                        );
+                        ConfirmSubscriptionResponse::ServerErr
+                    }
+                    Err(e) => {
+                        warn!(
+                            subscriber_id = subscriber_id.to_string(),
+                            error = e.to_string(),
+                            "fail to find subscriber by id",
+                        );
+                        ConfirmSubscriptionResponse::ServerErr
+                    }
+                }
+            }
+            Ok(None) => ConfirmSubscriptionResponse::NoSuchToken,
+            Err(e) => {
+                warn!(
+                    token = token.0,
+                    error = e.to_string(),
+                    "fail to find subscriber with token"
+                );
+                ConfirmSubscriptionResponse::ServerErr
+            }
+        }
     }
 }
 
@@ -173,6 +244,12 @@ enum CreateSubscriptionResponse {
 enum ConfirmSubscriptionResponse {
     #[oai(status = 200)]
     Ok,
+
+    #[oai(status = 400)]
+    NoSuchToken,
+
+    #[oai(status = 500)]
+    ServerErr,
 }
 
 pub enum ConfirmStatus {
