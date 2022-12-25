@@ -6,9 +6,11 @@ use poem_openapi::{
     payload::{Form, Json},
     ApiResponse, Object, OpenApi, OpenApiService,
 };
-use sea_orm::*;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use sea_orm::{prelude::Uuid, *};
 use serde::Deserialize;
-use tracing::{info, warn};
+use tracing::warn;
 
 use super::add_tracing;
 use crate::{
@@ -16,8 +18,6 @@ use crate::{
     domain::{Email, UserName},
     entities::{prelude::*, subscriptions},
 };
-
-pub const DEFAULT_CONFIRM_STATUS: &'static str = "pending_confirmed";
 
 pub struct Api {
     context: Arc<Context>,
@@ -41,11 +41,12 @@ impl Api {
     async fn insert_subscriber(
         &self,
         new_subscriber: NewSubscriber,
-    ) -> Result<i32, sea_orm::DbErr> {
+    ) -> Result<Uuid, sea_orm::DbErr> {
         let new_subscription = subscriptions::ActiveModel {
+            id: ActiveValue::Set(Uuid::new_v4()),
             name: ActiveValue::Set(new_subscriber.username.inner()),
             email: ActiveValue::Set(new_subscriber.email.inner()),
-            status: ActiveValue::Set(DEFAULT_CONFIRM_STATUS.to_owned()),
+            status: ActiveValue::Set(ConfirmStatus::Pending.to_string()),
             ..Default::default()
         };
         let res = Subscriptions::insert(new_subscription)
@@ -57,8 +58,12 @@ impl Api {
     async fn send_subscription_email(
         &self,
         recipient: Email,
+        token: &str,
     ) -> Result<reqwest::StatusCode, reqwest::Error> {
-        let confirm_link = format!("{}/subscriptions/confirm", self.context.base_url);
+        let confirm_link = format!(
+            "{}/subscriptions/confirm?subscription_token={}",
+            self.context.base_url, token
+        );
         self.context
             .email_client
             .send_email(
@@ -94,12 +99,17 @@ impl Api {
         let res = self.insert_subscriber(new_subscriber).await;
         match res {
             Ok(last_insert_id) => {
-                if let Err(e) = self.send_subscription_email(recipient).await {
+                let subscription_token = generate_subscription_token();
+                if let Err(e) = self
+                    .send_subscription_email(recipient, &subscription_token)
+                    .await
+                {
                     warn!(error = e.to_string());
                     return CreateSubscriptionResponse::ServerErr;
                 }
-                info!(last_insert_id, "newly created subscription id");
-                CreateSubscriptionResponse::Ok(Json(CreateSuccess { id: last_insert_id }))
+                CreateSubscriptionResponse::Ok(Json(CreateSuccess {
+                    id: last_insert_id.to_string(),
+                }))
             }
             Err(e) => {
                 warn!(error = e.to_string());
@@ -139,7 +149,7 @@ impl TryFrom<Form<SubscribeFormData>> for NewSubscriber {
 
 #[derive(Object)]
 struct CreateSuccess {
-    id: i32,
+    id: String,
 }
 
 #[derive(Object)]
@@ -163,4 +173,26 @@ enum CreateSubscriptionResponse {
 enum ConfirmSubscriptionResponse {
     #[oai(status = 200)]
     Ok,
+}
+
+pub enum ConfirmStatus {
+    Pending,
+    Confirmed,
+}
+
+impl ToString for ConfirmStatus {
+    fn to_string(&self) -> String {
+        match self {
+            ConfirmStatus::Pending => "pending_confirmed".to_owned(),
+            ConfirmStatus::Confirmed => "confirmed".to_owned(),
+        }
+    }
+}
+
+fn generate_subscription_token() -> String {
+    let mut rng = thread_rng();
+    std::iter::repeat_with(|| rng.sample(Alphanumeric))
+        .map(char::from)
+        .take(25)
+        .collect()
 }

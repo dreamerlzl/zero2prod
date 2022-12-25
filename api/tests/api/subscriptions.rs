@@ -1,11 +1,14 @@
+use std::str::FromStr;
+
 use anyhow::Result;
 use poem::http::StatusCode;
+use sea_orm::prelude::Uuid;
 use sea_orm::*;
 use sqlx::{Pool, Postgres};
 use wiremock::Mock;
 use wiremock::{matchers::path, ResponseTemplate};
 use zero2prod_api::entities::subscriptions;
-use zero2prod_api::routes::subscriptions::DEFAULT_CONFIRM_STATUS;
+use zero2prod_api::routes::subscriptions::ConfirmStatus;
 
 use crate::api::helpers::get_test_app;
 use crate::api::helpers::{email, get_first_link, post_subscription};
@@ -42,13 +45,15 @@ async fn subscribe_persists_the_new_subscriber(pool: Pool<Postgres>) -> Result<(
     let data = "username=lzl&email=bar@qq.com";
     let resp = post_subscription(&cli, data).await;
     let resp_json = resp.json().await;
-    let id = resp_json.value().object().get("id").i64() as i32;
-    let new_user = subscriptions::Entity::find_by_id(id).one(db).await?;
+    let id = resp_json.value().object().get("id").string();
+    let new_user = subscriptions::Entity::find_by_id(Uuid::from_str(id).unwrap())
+        .one(db)
+        .await?;
     assert!(new_user.is_some());
     let new_user = new_user.unwrap();
     assert_eq!(new_user.email, "bar@qq.com");
     assert_eq!(new_user.name, "lzl");
-    assert_eq!(new_user.status, DEFAULT_CONFIRM_STATUS);
+    assert_eq!(new_user.status, ConfirmStatus::Pending.to_string());
     Ok(())
 }
 
@@ -81,7 +86,6 @@ async fn subscribe_returns_a_confirmation_email(pool: Pool<Postgres>) -> Result<
         .mount(&test_app.email_server)
         .await;
 
-    let db = &test_app.db;
     let cli = &test_app.cli;
     let data = format!("username=lin&email={}", email().to_string());
     let resp = post_subscription(&cli, data).await;
