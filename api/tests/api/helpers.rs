@@ -13,7 +13,7 @@ use sea_orm_migration::prelude::*;
 use sqlx::{Pool, Postgres};
 use wiremock::MockServer;
 use zero2prod_api::configuration::get_test_configuration;
-use zero2prod_api::context::Context as RouteContext;
+use zero2prod_api::context::StateContext;
 use zero2prod_api::domain::Email;
 use zero2prod_api::routes::default_route;
 use zero2prod_api::setup_logger;
@@ -63,7 +63,7 @@ pub async fn get_test_app(pool: Pool<Postgres>) -> Result<TestApp> {
     let email_server = MockServer::start().await;
     let mut conf = get_test_configuration("config/test").expect("fail to get conf");
     conf.email_client.api_base_url = email_server.uri();
-    let mut context = RouteContext::new(conf.clone()).await?;
+    let mut context = StateContext::new(conf.clone()).await?;
     context.db = db.clone();
 
     let context = Arc::new(context);

@@ -6,12 +6,12 @@ use poem::{Endpoint, EndpointExt};
 
 use self::health::health_check;
 use crate::configuration::Configuration;
-use crate::context::Context;
+use crate::context::StateContext;
 
 pub mod health;
 pub mod subscriptions;
 
-pub async fn default_route(conf: Configuration, context: Arc<Context>) -> Route {
+pub async fn default_route(conf: Configuration, context: Arc<StateContext>) -> Route {
     let mut route = Route::new().at("/api/v1/health_check", get(health_check));
 
     let server_url = format!("http://localhost:{}", conf.app.port);

@@ -14,17 +14,17 @@ use tracing::{error, warn};
 
 use super::add_tracing;
 use crate::{
-    context::Context,
+    context::StateContext,
     domain::{Email, UserName},
     entities::{prelude::*, subscription_tokens, subscriptions},
 };
 
 pub struct Api {
-    context: Arc<Context>,
+    context: Arc<StateContext>,
 }
 
 pub fn get_api_service(
-    context: Arc<Context>,
+    context: Arc<StateContext>,
     server_url: &str,
 ) -> (OpenApiService<Api, ()>, impl Endpoint) {
     let api_service = OpenApiService::new(Api::new(context), "subscribe", "0.1").server(server_url);
@@ -33,7 +33,7 @@ pub fn get_api_service(
 }
 
 impl Api {
-    pub fn new(context: Arc<Context>) -> Self {
+    pub fn new(context: Arc<StateContext>) -> Self {
         Self { context }
     }
 
@@ -104,93 +104,54 @@ impl Api {
             user=%form.0.username
         )
     )]
-    async fn subscribe(&self, form: Form<SubscribeFormData>) -> CreateSubscriptionResponse {
-        let new_subscriber = match NewSubscriber::try_from(form) {
-            Err(e) => {
-                return CreateSubscriptionResponse::InvalidData(Json(InvalidData { msg: e }));
-            }
-            Ok(new_subscriber) => new_subscriber,
-        };
+    async fn subscribe(
+        &self,
+        form: Form<SubscribeFormData>,
+    ) -> Result<Json<CreateSuccess>, ApiErrorResponse> {
+        let new_subscriber =
+            NewSubscriber::try_from(form).map_err(|_| ApiErrorResponse::BadRequest)?;
         let recipient = new_subscriber.email.clone();
-        let res = self.insert_subscriber(new_subscriber).await;
-        match res {
-            Ok(last_insert_id) => {
-                let subscription_token = generate_subscription_token();
-                if let Err(e) = self
-                    .store_subscription_token(last_insert_id, subscription_token.clone())
-                    .await
-                {
-                    warn!(error = e.to_string());
-                    return CreateSubscriptionResponse::ServerErr;
-                }
-                if let Err(e) = self
-                    .send_subscription_email(recipient, &subscription_token)
-                    .await
-                {
-                    warn!(error = e.to_string());
-                    return CreateSubscriptionResponse::ServerErr;
-                }
-                CreateSubscriptionResponse::Ok(Json(CreateSuccess {
-                    id: last_insert_id.to_string(),
-                }))
-            }
-            Err(e) => {
-                warn!(error = e.to_string());
-                CreateSubscriptionResponse::ServerErr
-            }
-        }
+        let last_insert_id = self.insert_subscriber(new_subscriber).await?;
+        let subscription_token = generate_subscription_token();
+        self.store_subscription_token(last_insert_id, subscription_token.clone())
+            .await?;
+        self.send_subscription_email(recipient, &subscription_token)
+            .await?;
+        Ok(Json(CreateSuccess {
+            id: last_insert_id.to_string(),
+        }))
     }
 
     #[oai(path = "/confirm", method = "get", transform = "add_tracing")]
     #[tracing::instrument(skip(self, token), name = "new subscription confirm")]
-    async fn confirm(&self, token: Query<String>) -> ConfirmSubscriptionResponse {
+    async fn confirm(&self, token: Query<String>) -> Result<(), ApiErrorResponse> {
         let subscription_token = token.0.clone();
         let subscriber_status = SubscriptionTokens::find()
             .filter(subscription_tokens::Column::SubscriptionToken.eq(subscription_token))
             .one(&self.context.db)
-            .await;
-        match subscriber_status {
-            Ok(Some(subscriber_status)) => {
-                let subscriber_id = subscriber_status.subscriber_id;
-                let subscriber = Subscriptions::find_by_id(subscriber_id)
-                    .one(&self.context.db)
-                    .await;
-                match subscriber {
-                    Ok(Some(subscriber)) => {
-                        let mut subscriber: subscriptions::ActiveModel = subscriber.into();
-                        subscriber.status = Set(ConfirmStatus::Confirmed.to_string());
-                        if let Err(e) = subscriber.update(&self.context.db).await {
-                            warn!(error = e.to_string(), "fail to update user confirm status");
-                            ConfirmSubscriptionResponse::ServerErr
-                        } else {
-                            ConfirmSubscriptionResponse::Ok
-                        }
-                    }
-                    Ok(None) => {
-                        error!(
-                            subscriber_id = subscriber_id.to_string(),
-                            "fail to find subscriber despite foreign key contraint"
-                        );
-                        ConfirmSubscriptionResponse::ServerErr
-                    }
-                    Err(e) => {
-                        warn!(
-                            subscriber_id = subscriber_id.to_string(),
-                            error = e.to_string(),
-                            "fail to find subscriber by id",
-                        );
-                        ConfirmSubscriptionResponse::ServerErr
-                    }
-                }
+            .await?;
+        if subscriber_status.is_none() {
+            warn!(token = token.0, "token not found in db");
+            return Err(ApiErrorResponse::BadRequest);
+        }
+        let subscriber_status = subscriber_status.unwrap();
+        let subscriber_id = subscriber_status.subscriber_id;
+        let subscriber = Subscriptions::find_by_id(subscriber_id)
+            .one(&self.context.db)
+            .await?;
+        match subscriber {
+            Some(subscriber) => {
+                let mut subscriber: subscriptions::ActiveModel = subscriber.into();
+                subscriber.status = Set(ConfirmStatus::Confirmed.to_string());
+                subscriber.update(&self.context.db).await?;
+                Ok(())
             }
-            Ok(None) => ConfirmSubscriptionResponse::NoSuchToken,
-            Err(e) => {
-                warn!(
-                    token = token.0,
-                    error = e.to_string(),
-                    "fail to find subscriber with token"
+            None => {
+                error!(
+                    subscriber_id = subscriber_id.to_string(),
+                    "fail to find subscriber despite foreign key contraint"
                 );
-                ConfirmSubscriptionResponse::ServerErr
+                Err(ApiErrorResponse::InternalServerError)
             }
         }
     }
@@ -229,27 +190,26 @@ struct InvalidData {
 }
 
 #[derive(ApiResponse)]
-enum CreateSubscriptionResponse {
-    #[oai(status = 200)]
-    Ok(Json<CreateSuccess>),
-
+enum ApiErrorResponse {
     #[oai(status = 400)]
-    InvalidData(Json<InvalidData>),
+    BadRequest,
 
     #[oai(status = 500)]
-    ServerErr,
+    InternalServerError,
 }
 
-#[derive(ApiResponse)]
-enum ConfirmSubscriptionResponse {
-    #[oai(status = 200)]
-    Ok,
+impl From<sea_orm::DbErr> for ApiErrorResponse {
+    fn from(value: sea_orm::DbErr) -> Self {
+        error!(error = value.to_string(), "database error");
+        ApiErrorResponse::InternalServerError
+    }
+}
 
-    #[oai(status = 400)]
-    NoSuchToken,
-
-    #[oai(status = 500)]
-    ServerErr,
+impl From<reqwest::Error> for ApiErrorResponse {
+    fn from(value: reqwest::Error) -> Self {
+        error!(error = value.to_string(), "database error");
+        ApiErrorResponse::InternalServerError
+    }
 }
 
 pub enum ConfirmStatus {

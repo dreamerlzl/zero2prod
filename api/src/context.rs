@@ -5,13 +5,13 @@ use crate::email_client::EmailClient;
 use crate::startup::{get_database_connection, get_email_client};
 
 #[derive(Clone)]
-pub struct Context {
+pub struct StateContext {
     pub db: DatabaseConnection,
     pub email_client: EmailClient,
     pub base_url: String,
 }
 
-impl Context {
+impl StateContext {
     pub async fn new(conf: Configuration) -> Result<Self, anyhow::Error> {
         let db = get_database_connection(conf.db).await?;
         let email_client = get_email_client(conf.email_client)?;

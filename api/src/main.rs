@@ -4,7 +4,7 @@ use anyhow::Result;
 use poem::{listener::TcpListener, Server};
 use tracing::info;
 use zero2prod_api::configuration::get_configuration;
-use zero2prod_api::context::Context;
+use zero2prod_api::context::StateContext;
 use zero2prod_api::routes::default_route;
 use zero2prod_api::setup_logger;
 
@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     let conf = get_configuration().expect("fail to read configuration");
 
     let app_port = conf.app.port;
-    let context = Context::new(conf.clone()).await?;
+    let context = StateContext::new(conf.clone()).await?;
     let context = Arc::new(context);
 
     // set routing
