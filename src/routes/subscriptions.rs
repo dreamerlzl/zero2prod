@@ -37,11 +37,14 @@ impl Api {
         Self { context }
     }
 
-    #[tracing::instrument(skip(self))]
-    async fn insert_subscriber(
-        &self,
+    #[tracing::instrument(skip(conn))]
+    async fn insert_subscriber<C>(
+        conn: &C,
         new_subscriber: NewSubscriber,
-    ) -> Result<Uuid, sea_orm::DbErr> {
+    ) -> Result<Uuid, sea_orm::DbErr>
+    where
+        C: ConnectionTrait,
+    {
         let new_subscription = subscriptions::ActiveModel {
             id: ActiveValue::Set(Uuid::new_v4()),
             name: ActiveValue::Set(new_subscriber.username.inner()),
@@ -49,14 +52,13 @@ impl Api {
             status: ActiveValue::Set(ConfirmStatus::Pending.to_string()),
             ..Default::default()
         };
-        let res = Subscriptions::insert(new_subscription)
-            .exec(&self.context.db)
-            .await?;
+        let res = Subscriptions::insert(new_subscription).exec(conn).await?;
         Ok(res.last_insert_id)
     }
 
-    async fn store_subscription_token(
-        &self,
+    #[tracing::instrument(skip(conn))]
+    async fn store_subscription_token<C: ConnectionTrait>(
+        conn: &C,
         subscriber_id: Uuid,
         token: String,
     ) -> Result<(), sea_orm::DbErr> {
@@ -65,7 +67,7 @@ impl Api {
             subscription_token: ActiveValue::Set(token),
         };
         _ = SubscriptionTokens::insert(new_subscription_token)
-            .exec(&self.context.db)
+            .exec(conn)
             .await?;
         Ok(())
     }
@@ -85,8 +87,8 @@ impl Api {
             .send_email(
                 &recipient,
                 "welcome new subscriber",
-                &format!("<a href=\"{}\">here</a>", confirm_link),
-                &format!("{}", confirm_link),
+                &format!("<a href=\"{confirm_link}\">here</a>"),
+                &format!("{confirm_link}"),
             )
             .await
     }
@@ -111,12 +113,15 @@ impl Api {
         let new_subscriber =
             NewSubscriber::try_from(form).map_err(|_| ApiErrorResponse::BadRequest)?;
         let recipient = new_subscriber.email.clone();
-        let last_insert_id = self.insert_subscriber(new_subscriber).await?;
+
+        let txn = self.context.db.begin().await?;
+        let last_insert_id = Api::insert_subscriber(&txn, new_subscriber).await?;
         let subscription_token = generate_subscription_token();
-        self.store_subscription_token(last_insert_id, subscription_token.clone())
-            .await?;
+        Api::store_subscription_token(&txn, last_insert_id, subscription_token.clone()).await?;
         self.send_subscription_email(recipient, &subscription_token)
             .await?;
+        txn.commit().await?;
+
         Ok(Json(CreateSuccess {
             id: last_insert_id.to_string(),
         }))

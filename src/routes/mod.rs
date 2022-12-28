@@ -16,7 +16,7 @@ pub async fn default_route(conf: Configuration, context: Arc<StateContext>) -> R
 
     let server_url = format!("http://localhost:{}", conf.app.port);
     let (subscriptions_service, ui) =
-        subscriptions::get_api_service(context.clone(), &format!("{}/subscriptions", server_url));
+        subscriptions::get_api_service(context, &format!("{server_url}/subscriptions"));
     route = route
         .nest("/subscriptions", subscriptions_service)
         .nest("/subscriptions/docs", ui);
