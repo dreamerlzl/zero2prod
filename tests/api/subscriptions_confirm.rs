@@ -37,7 +37,7 @@ async fn subscribe_and_then_confirm(pool: Pool<Postgres>) -> Result<()> {
 
     let email_request = app.email_server.received_requests().await.unwrap();
     let body: serde_json::Value = serde_json::from_slice(&email_request[0].body).unwrap();
-    let confirm_link = get_first_link(&body["TextBody"].as_str().unwrap());
+    let confirm_link = get_first_link(body["TextBody"].as_str().unwrap());
     let confirm_link = reqwest::Url::parse(&confirm_link)?;
     assert_eq!(confirm_link.host_str().unwrap(), "127.0.0.1");
     assert_eq!(confirm_link.path(), "/subscriptions/confirm");

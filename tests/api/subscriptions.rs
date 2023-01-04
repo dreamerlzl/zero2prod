@@ -27,7 +27,7 @@ async fn subscribe_returns_a_200_for_valid_form_data(pool: Pool<Postgres>) -> Re
     ];
 
     for data in valid_data.into_iter() {
-        let resp = post_subscription(&cli, data).await;
+        let resp = post_subscription(cli, data).await;
         resp.assert_status(StatusCode::OK);
     }
     Ok(())
@@ -43,7 +43,7 @@ async fn subscribe_persists_the_new_subscriber(pool: Pool<Postgres>) -> Result<(
         .mount(&test_app.email_server)
         .await;
     let data = "username=lzl&email=bar@qq.com";
-    let resp = post_subscription(&cli, data).await;
+    let resp = post_subscription(cli, data).await;
     let resp_json = resp.json().await;
     let id = resp_json.value().object().get("id").string();
     let new_user = subscriptions::Entity::find_by_id(Uuid::from_str(id).unwrap())
@@ -70,7 +70,7 @@ async fn subscribe_returns_400_for_invalid_data(pool: Pool<Postgres>) -> Result<
     ];
 
     for data in invalid_data.into_iter() {
-        let resp = post_subscription(&cli, data).await;
+        let resp = post_subscription(cli, data).await;
         resp.assert_status(StatusCode::BAD_REQUEST);
     }
     Ok(())
@@ -88,13 +88,13 @@ async fn subscribe_returns_a_confirmation_email(pool: Pool<Postgres>) -> Result<
 
     let cli = &test_app.cli;
     let data = format!("username=lin&email={}", email().to_string());
-    let resp = post_subscription(&cli, data).await;
+    let resp = post_subscription(cli, data).await;
     resp.assert_status(StatusCode::OK);
     let email_request = test_app.email_server.received_requests().await.unwrap();
 
     let body: serde_json::Value = serde_json::from_slice(&email_request[0].body).unwrap();
-    let html_link = get_first_link(&body["HtmlBody"].as_str().unwrap());
-    let text_link = get_first_link(&body["TextBody"].as_str().unwrap());
+    let html_link = get_first_link(body["HtmlBody"].as_str().unwrap());
+    let text_link = get_first_link(body["TextBody"].as_str().unwrap());
     assert_eq!(html_link, text_link);
 
     Ok(())
