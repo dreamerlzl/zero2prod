@@ -3,7 +3,7 @@ use std::{convert::TryFrom, sync::Arc};
 use poem::Endpoint;
 use poem_openapi::{
     param::Query,
-    payload::{Form, Json},
+    payload::{Form, Json, PlainText},
     ApiResponse, Object, OpenApi, OpenApiService,
 };
 use rand::distributions::Alphanumeric;
@@ -110,8 +110,8 @@ impl Api {
         &self,
         form: Form<SubscribeFormData>,
     ) -> Result<Json<CreateSuccess>, ApiErrorResponse> {
-        let new_subscriber =
-            NewSubscriber::try_from(form).map_err(|_| ApiErrorResponse::BadRequest)?;
+        let new_subscriber = NewSubscriber::try_from(form)
+            .map_err(|e| ApiErrorResponse::BadRequest(PlainText(e)))?;
         let recipient = new_subscriber.email.clone();
 
         let txn = self.context.db.begin().await?;
@@ -137,7 +137,9 @@ impl Api {
             .await?;
         if subscriber_status.is_none() {
             warn!(token = token.0, "token not found in db");
-            return Err(ApiErrorResponse::BadRequest);
+            return Err(ApiErrorResponse::BadRequest(PlainText(
+                "token not found in db".to_owned(),
+            )));
         }
         let subscriber_status = subscriber_status.unwrap();
         let subscriber_id = subscriber_status.subscriber_id;
@@ -197,7 +199,7 @@ struct InvalidData {
 #[derive(ApiResponse)]
 enum ApiErrorResponse {
     #[oai(status = 400)]
-    BadRequest,
+    BadRequest(PlainText<String>),
 
     #[oai(status = 500)]
     InternalServerError,
