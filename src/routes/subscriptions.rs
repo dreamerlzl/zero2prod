@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, sync::Arc};
+use std::{convert::TryFrom, fmt::Display, sync::Arc};
 
 use poem::Endpoint;
 use poem_openapi::{
@@ -196,13 +196,23 @@ struct InvalidData {
     msg: String,
 }
 
-#[derive(ApiResponse)]
+#[derive(ApiResponse, Debug)]
+#[oai(display)]
 enum ApiErrorResponse {
     #[oai(status = 400)]
     BadRequest(PlainText<String>),
 
     #[oai(status = 500)]
     InternalServerError,
+}
+
+impl Display for ApiErrorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApiErrorResponse::BadRequest(e) => write!(f, "bad request: {}", e.as_str()),
+            ApiErrorResponse::InternalServerError => write!(f, "internal server error"),
+        }
+    }
 }
 
 impl From<sea_orm::DbErr> for ApiErrorResponse {
