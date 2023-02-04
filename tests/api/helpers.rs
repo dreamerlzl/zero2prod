@@ -33,6 +33,20 @@ pub fn email() -> Email {
     Email::parse(SafeEmail().fake::<String>()).unwrap()
 }
 
+pub struct ConfirmationLinks {
+    pub html: reqwest::Url,
+    pub plain_text: reqwest::Url,
+}
+
+pub fn get_confirmation_link(email_request: &wiremock::Request) -> ConfirmationLinks {
+    let body: serde_json::Value = serde_json::from_slice(&email_request.body).unwrap();
+    let html = get_first_link(body["HtmlBody"].as_str().unwrap());
+    let html = reqwest::Url::parse(&html).unwrap();
+    let text = get_first_link(body["TextBody"].as_str().unwrap());
+    let plain_text = reqwest::Url::parse(&text).unwrap();
+    ConfirmationLinks { html, plain_text }
+}
+
 pub fn get_first_link(text: &str) -> String {
     let finder = LinkFinder::new();
     let links: Vec<_> = finder
@@ -74,4 +88,10 @@ pub async fn get_test_app(pool: Pool<Postgres>) -> Result<TestApp> {
         db,
         email_server,
     })
+}
+
+impl TestApp {
+    pub async fn post_newsletters(&self, body: serde_json::Value) -> TestResponse {
+        self.cli.post("/newsletters").body_json(&body).send().await
+    }
 }
