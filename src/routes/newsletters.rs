@@ -1,18 +1,22 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
-use poem::{web::Json, Endpoint};
+use anyhow::{anyhow, Context};
+use base64::{engine::general_purpose, Engine};
+use poem::{http::HeaderMap, web::Json, Endpoint};
 use poem_openapi::{Object, OpenApi, OpenApiService};
-use sea_orm::{
-    entity::*, ColumnTrait, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect,
-};
+use sea_orm::{ColumnTrait, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect};
+use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
+use uuid::Uuid;
 
 use super::{add_tracing, subscriptions::ConfirmStatus};
 use crate::{
     context::StateContext,
     domain::Email,
-    entities::subscriptions::{self, Entity as Subscriptions},
+    entities::{
+        subscriptions::{self, Entity as Subscriptions},
+        user::{self, Entity as Users},
+    },
     routes::ApiErrorResponse,
 };
 
@@ -32,14 +36,18 @@ pub fn get_api_service(
 
 #[OpenApi]
 impl Api {
+    #[tracing::instrument(name = "Publish a newsletter issue", skip(self), fields(username=tracing::field::Empty, user_id=tracing::field::Empty))]
     #[oai(path = "/", method = "post", transform = "add_tracing")]
     async fn publish_newsletter(
         &self,
+        headers: &HeaderMap,
         body: Json<NewsletterJsonPost>,
     ) -> Result<(), ApiErrorResponse> {
         // list all confirmed subscribers
         // ideally, we should let some workers to handle all the confirmed subscribers
         // asynchrounously
+        let credentials = basic_authentication(headers).map_err(PublishError::AuthError)?;
+        self.validate_credentials(credentials).await?;
         let subscribers = self.get_confirmed_subscribers().await?;
         for subscriber in subscribers {
             match subscriber {
@@ -114,8 +122,64 @@ impl Api {
             .collect();
         Ok(subscribers)
     }
+
+    async fn validate_credentials(&self, credentials: Credentials) -> Result<Uuid, PublishError> {
+        let user_id = Users::find()
+            .filter(
+                user::Column::UserName
+                    .eq(credentials.username)
+                    .and(user::Column::PasswordHashed.eq(credentials.password.expose_secret())),
+            )
+            .one(&self.context.db)
+            .await?;
+        let user_id = user_id
+            .map(|u| u.id)
+            .ok_or_else(|| anyhow!("invalid username or password"))?;
+        Ok(user_id)
+    }
 }
 
 struct ConfirmedSubscriber {
     email: Email,
+}
+
+pub struct Credentials {
+    pub username: String,
+    pub password: Secret<String>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PublishError {
+    #[error("Authentication failed.")]
+    AuthError(#[from] anyhow::Error),
+
+    #[error("unexpected error")]
+    UnexpectedError(#[from] sea_orm::DbErr),
+}
+
+fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Error> {
+    let header_value = headers
+        .get("Authorization")
+        .context("the 'Authorization' header is missing")?
+        .to_str()
+        .context("the 'Authorization' header is not a valid utf8 str")?;
+
+    let base64encoded_segment = header_value
+        .strip_prefix("Basic ")
+        .context("the authorization scheme is not 'Basic'. ")?;
+    let decoded_bytes = general_purpose::STANDARD.decode(base64encoded_segment)?;
+    let decoded_credentials =
+        String::from_utf8(decoded_bytes).context("the decoded credentials is not valid utf8")?;
+
+    let mut credentials = decoded_credentials.splitn(2, ':');
+    let username = credentials
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("a username must be provided in 'Basic' auth"))?
+        .to_owned();
+    let password = credentials
+        .next()
+        .ok_or_else(|| anyhow!("a password must be provided in 'Basic' auth"))?
+        .to_owned();
+    let password = Secret::new(password);
+    Ok(Credentials { username, password })
 }

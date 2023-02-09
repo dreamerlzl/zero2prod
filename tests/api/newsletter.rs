@@ -78,6 +78,22 @@ async fn newsletters_delived_to_confirmed_subscribers(pool: Pool<Postgres>) -> R
     Ok(())
 }
 
+#[sqlx::test]
+async fn requests_without_authorization_are_rejected(pool: Pool<Postgres>) -> Result<()> {
+    let app = get_test_app(pool).await?;
+    let body = serde_json::json!({
+        "title": "title",
+        "content": {
+            "text": "plain text",
+            "html": "<p>html body</p>",
+        },
+    });
+    let resp = app.post_newsletters_without_auth(body).await;
+    resp.assert_status(StatusCode::UNAUTHORIZED);
+    resp.assert_header("WWW-Authenticate", r#"Basic realm="publish""#);
+    Ok(())
+}
+
 async fn create_unconfirmed_subscriber(app: &TestApp) -> ConfirmationLinks {
     // mount_as_scoped -> the mock would no longer work after _guard is dropped
     let _guard = Mock::given(path("/email"))

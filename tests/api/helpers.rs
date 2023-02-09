@@ -1,21 +1,27 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use base64::engine::general_purpose;
+use base64::Engine;
 use fake::{faker::internet::en::SafeEmail, Fake};
 use linkify::LinkFinder;
 use migration::{Migrator, MigratorTrait};
 use once_cell::sync::Lazy;
 use poem::test::{TestClient, TestResponse};
 use poem::{Body, Route};
+use sea_orm::prelude::Uuid;
 use sea_orm::DatabaseConnection;
 use sea_orm::*;
 use sea_orm_migration::prelude::*;
+use secrecy::{ExposeSecret, Secret};
 use sqlx::{Pool, Postgres};
 use wiremock::MockServer;
 use zero2prod_api::configuration::get_test_configuration;
 use zero2prod_api::context::StateContext;
 use zero2prod_api::domain::Email;
+use zero2prod_api::entities::user::{self, Entity as Users};
 use zero2prod_api::routes::default_route;
+use zero2prod_api::routes::newsletters::Credentials;
 use zero2prod_api::setup_logger;
 
 pub async fn post_subscription<T: 'static + Into<Body>>(
@@ -91,7 +97,45 @@ pub async fn get_test_app(pool: Pool<Postgres>) -> Result<TestApp> {
 }
 
 impl TestApp {
-    pub async fn post_newsletters(&self, body: serde_json::Value) -> TestResponse {
+    pub async fn post_newsletters_without_auth(&self, body: serde_json::Value) -> TestResponse {
         self.cli.post("/newsletters").body_json(&body).send().await
+    }
+
+    pub async fn post_newsletters(&self, body: serde_json::Value) -> TestResponse {
+        let Credentials { username, password } = self
+            .register_test_user()
+            .await
+            .expect("fail to register test user");
+        self.cli
+            .post("/newsletters")
+            .body_json(&body)
+            .header(
+                "Authorization",
+                format!(
+                    "Basic {}",
+                    general_purpose::STANDARD.encode(format!(
+                        "{}:{}",
+                        username,
+                        password.expose_secret(),
+                    ))
+                ),
+            )
+            .send()
+            .await
+    }
+
+    pub async fn register_test_user(&self) -> Result<Credentials, sea_orm::DbErr> {
+        let username = Uuid::new_v4().to_string();
+        let password = Uuid::new_v4().to_string();
+        let new_user = user::ActiveModel {
+            id: ActiveValue::Set(Uuid::new_v4()),
+            user_name: ActiveValue::Set(username.clone()),
+            password_hashed: ActiveValue::Set(password.clone()),
+        };
+        Users::insert(new_user).exec(&self.db).await?;
+        Ok(Credentials {
+            username,
+            password: Secret::new(password),
+        })
     }
 }

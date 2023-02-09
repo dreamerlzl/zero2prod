@@ -8,9 +8,10 @@ use poem_openapi::{
 };
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use sea_orm::{prelude::Uuid, *};
+use sea_orm::*;
 use serde::Deserialize;
 use tracing::{error, warn};
+use uuid::Uuid;
 
 use super::add_tracing;
 use crate::{

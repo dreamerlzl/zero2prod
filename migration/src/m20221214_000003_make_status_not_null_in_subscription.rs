@@ -22,7 +22,7 @@ impl MigrationTrait for Migration {
         let sql = Query::update()
             .table(Subscriptions::Table)
             .and_where(Expr::col(UpdateSubscriptions::Status).is_null())
-            .value(UpdateSubscriptions::Status, "confirmed".into())
+            .value(UpdateSubscriptions::Status, "confirmed".to_owned())
             .to_owned()
             .to_string(PostgresQueryBuilder);
         let stmt = Statement::from_string(manager.get_database_backend(), sql.to_owned());
