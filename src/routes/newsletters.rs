@@ -7,6 +7,7 @@ use poem_openapi::{Object, OpenApi, OpenApiService};
 use sea_orm::{ColumnTrait, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
+use sha3::{Digest, Sha3_256};
 use uuid::Uuid;
 
 use super::{add_tracing, subscriptions::ConfirmStatus};
@@ -124,11 +125,12 @@ impl Api {
     }
 
     async fn validate_credentials(&self, credentials: Credentials) -> Result<Uuid, PublishError> {
+        let password_hash = get_hash(credentials.password.expose_secret());
         let user_id = Users::find()
             .filter(
                 user::Column::UserName
                     .eq(credentials.username)
-                    .and(user::Column::PasswordHashed.eq(credentials.password.expose_secret())),
+                    .and(user::Column::PasswordHashed.eq(password_hash)),
             )
             .one(&self.context.db)
             .await?;
@@ -182,4 +184,10 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
         .to_owned();
     let password = Secret::new(password);
     Ok(Credentials { username, password })
+}
+
+pub fn get_hash(input: &String) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(input);
+    format!("{:x}", hasher.finalize())
 }
