@@ -35,7 +35,10 @@ impl From<PublishError> for ApiErrorResponse {
             PublishError::AuthError(_) => {
                 ApiErrorResponse::AuthError(r#"Basic realm="publish""#.to_owned())
             }
-            PublishError::UnexpectedError(_) => ApiErrorResponse::InternalServerError,
+            PublishError::UnexpectedError(e) => {
+                error!(error = e.to_string(), "Unexpected publish error");
+                ApiErrorResponse::InternalServerError
+            }
         }
     }
 }

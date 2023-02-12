@@ -19,6 +19,7 @@ name = "integration"
 
 [dependencies]
 anyhow = "1.0.66"
+argon2 = "0.4.1"
 base64 = "0.21.0"
 chrono = "0.4.22"
 config = "0.13.2"
@@ -30,7 +31,6 @@ sea-orm = { version = "0.11.0", features = ["sqlx-postgres", "macros", "runtime-
 sea-orm-migration = "0.11.0"
 secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.144", features = ["derive"] }
-sha3 = "0.10.6"
 sqlx = { version = "0.6", default-features = false, features = ["postgres", "migrate"] }
 thiserror = "1.0.38"
 tokio = { version = "1.21.0", features = ["full"] }

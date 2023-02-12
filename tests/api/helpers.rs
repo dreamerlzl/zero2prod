@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
 use fake::{faker::internet::en::SafeEmail, Fake};
@@ -126,6 +126,7 @@ impl TestApp {
 pub struct TestUser {
     username: String,
     password: String,
+    salt: String,
 }
 
 impl TestUser {
@@ -133,6 +134,7 @@ impl TestUser {
         Self {
             username: Uuid::new_v4().to_string(),
             password: Uuid::new_v4().to_string(),
+            salt: Uuid::new_v4().to_string(),
         }
     }
 }
@@ -140,12 +142,14 @@ impl TestUser {
 pub async fn register_test_user(
     db: &DatabaseConnection,
     test_user: &TestUser,
-) -> Result<(), sea_orm::DbErr> {
-    let password_hash = get_hash(&test_user.password);
+) -> anyhow::Result<()> {
+    let password_hash =
+        get_hash(&test_user.password, &test_user.salt).context("fail to register_test_user")?;
     let new_user = user::ActiveModel {
         id: ActiveValue::Set(Uuid::new_v4()),
         user_name: ActiveValue::Set(test_user.username.clone()),
         password_hashed: ActiveValue::Set(password_hash),
+        salt: ActiveValue::Set(test_user.salt.clone()),
     };
     Users::insert(new_user).exec(db).await?;
     Ok(())

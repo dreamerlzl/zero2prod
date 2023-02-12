@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
+use argon2::{Argon2, PasswordHasher};
 use base64::{engine::general_purpose, Engine};
 use poem::{http::HeaderMap, web::Json, Endpoint};
 use poem_openapi::{Object, OpenApi, OpenApiService};
 use sea_orm::{ColumnTrait, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
-use sha3::{Digest, Sha3_256};
 use uuid::Uuid;
 
 use super::{add_tracing, subscriptions::ConfirmStatus};
@@ -125,19 +125,19 @@ impl Api {
     }
 
     async fn validate_credentials(&self, credentials: Credentials) -> Result<Uuid, PublishError> {
-        let password_hash = get_hash(credentials.password.expose_secret());
-        let user_id = Users::find()
-            .filter(
-                user::Column::UserName
-                    .eq(credentials.username)
-                    .and(user::Column::PasswordHashed.eq(password_hash)),
-            )
+        let user = Users::find()
+            .filter(user::Column::UserName.eq(credentials.username))
             .one(&self.context.db)
-            .await?;
-        let user_id = user_id
-            .map(|u| u.id)
-            .ok_or_else(|| anyhow!("invalid username or password"))?;
-        Ok(user_id)
+            .await
+            .context("fail to find the auth user")?;
+
+        let user = user.ok_or_else(|| anyhow!("invalid username or password"))?;
+        let password_hash = get_hash(credentials.password.expose_secret(), &user.salt)
+            .context("fail to validate credentials")?;
+        if password_hash != user.password_hashed {
+            return Err(anyhow!("invalid password").into());
+        }
+        Ok(user.id)
     }
 }
 
@@ -153,10 +153,10 @@ pub struct Credentials {
 #[derive(thiserror::Error, Debug)]
 pub enum PublishError {
     #[error("Authentication failed.")]
-    AuthError(#[from] anyhow::Error),
+    AuthError(#[source] anyhow::Error),
 
     #[error("unexpected error")]
-    UnexpectedError(#[from] sea_orm::DbErr),
+    UnexpectedError(#[from] anyhow::Error),
 }
 
 fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Error> {
@@ -186,8 +186,13 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
     Ok(Credentials { username, password })
 }
 
-pub fn get_hash(input: &String) -> String {
-    let mut hasher = Sha3_256::new();
-    hasher.update(input);
-    format!("{:x}", hasher.finalize())
+pub fn get_hash(input: &String, salt: &String) -> anyhow::Result<String> {
+    let argon2 = Argon2::default();
+    // let salt = SaltString::generate(&mut OsRng);
+    let salt = general_purpose::STANDARD.encode(salt);
+    let password_hash = argon2
+        .hash_password(input.as_bytes(), &salt)
+        .map_err(|e| anyhow!(format!("fail to hash with argon2: {}", e.to_string())))?
+        .to_string();
+    Ok(password_hash)
 }

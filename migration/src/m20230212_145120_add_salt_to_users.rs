@@ -1,5 +1,7 @@
 use sea_orm_migration::prelude::*;
 
+use crate::m20230212_094638_create_user_table::User;
+
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -7,15 +9,11 @@ pub struct Migration;
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Replace the sample below with your own migration scripts
-
         manager
-            .create_table(
-                Table::create()
+            .alter_table(
+                Table::alter()
                     .table(User::Table)
-                    .if_not_exists()
-                    .col(ColumnDef::new(User::Id).uuid().not_null().primary_key())
-                    .col(ColumnDef::new(User::UserName).string().not_null())
-                    .col(ColumnDef::new(User::PasswordHashed).string().not_null())
+                    .add_column(ColumnDef::new(Alias::new("salt")).string().not_null())
                     .to_owned(),
             )
             .await
@@ -23,18 +21,13 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Replace the sample below with your own migration scripts
-
         manager
-            .drop_table(Table::drop().table(User::Table).to_owned())
+            .alter_table(
+                Table::alter()
+                    .table(User::Table)
+                    .drop_column(Alias::new("salt"))
+                    .to_owned(),
+            )
             .await
     }
-}
-
-/// Learn more at https://docs.rs/sea-query#iden
-#[derive(Iden)]
-pub enum User {
-    Table,
-    Id,
-    PasswordHashed,
-    UserName,
 }
