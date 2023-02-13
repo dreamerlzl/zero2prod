@@ -124,27 +124,32 @@ impl Api {
         Ok(subscribers)
     }
 
+    #[tracing::instrument(name = "validate user's credentials", skip(self, credentials))]
     async fn validate_credentials(&self, credentials: Credentials) -> Result<Uuid, PublishError> {
+        let user = self.get_user_by_credentials(&credentials).await?;
+        let current_span = tracing::Span::current();
+        tokio::task::spawn_blocking(move || {
+            current_span.in_scope(|| verify_password(user.password_hashed, credentials.password))
+        })
+        .await
+        .map_err(|e| anyhow!(format!("hash phc string verify error: {}", e.to_string())))??;
+
+        Ok(user.id)
+    }
+
+    #[tracing::instrument(name = "get user by provided credentials", skip(self, credentials))]
+    async fn get_user_by_credentials(
+        &self,
+        credentials: &Credentials,
+    ) -> Result<user::Model, PublishError> {
         let user = Users::find()
-            .filter(user::Column::UserName.eq(credentials.username))
+            .filter(user::Column::UserName.eq(&credentials.username))
             .one(&self.context.db)
             .await
             .context("fail to find the auth user")?;
 
         let user = user.ok_or_else(|| anyhow!("invalid username or password"))?;
-        let expected_hash = PasswordHash::new(&user.password_hashed).map_err(|e| {
-            anyhow!(format!(
-                "fail to extract hash in phc string format: {}",
-                e.to_string()
-            ))
-        })?;
-        Argon2::default()
-            .verify_password(
-                credentials.password.expose_secret().as_bytes(),
-                &expected_hash,
-            )
-            .map_err(|e| anyhow!(format!("hash phc string verify error: {}", e.to_string())))?;
-        Ok(user.id)
+        Ok(user)
     }
 }
 
@@ -202,4 +207,18 @@ pub fn get_hash(input: &String, salt: &String) -> anyhow::Result<String> {
         .map_err(|e| anyhow!(format!("fail to hash with argon2: {}", e.to_string())))?
         .to_string();
     Ok(password_hash)
+}
+
+#[tracing::instrument(name = "verify password", skip(phc, password))]
+fn verify_password(phc: String, password: Secret<String>) -> Result<(), PublishError> {
+    let expected_hash = PasswordHash::new(&phc).map_err(|e| {
+        anyhow!(format!(
+            "fail to extract hash in phc string format: {}",
+            e.to_string()
+        ))
+    })?;
+    Argon2::default()
+        .verify_password(password.expose_secret().as_bytes(), &expected_hash)
+        .map_err(|e| anyhow!(format!("fail to verify password: {}", e.to_string())))?;
+    Ok(())
 }

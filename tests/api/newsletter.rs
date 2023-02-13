@@ -58,7 +58,7 @@ async fn newsletters_not_delivered_to_unconfirmed_subscribers(pool: Pool<Postgre
 }
 
 #[sqlx::test]
-async fn newsletters_delived_to_confirmed_subscribers(pool: Pool<Postgres>) -> Result<()> {
+async fn newsletters_delivered_to_confirmed_subscribers(pool: Pool<Postgres>) -> Result<()> {
     let app = get_test_app(pool).await?;
     create_confirmed_subscriber(&app).await;
     Mock::given(path("/email"))
