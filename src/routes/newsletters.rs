@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use argon2::{Argon2, PasswordHasher};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::{engine::general_purpose, Engine};
 use poem::{http::HeaderMap, web::Json, Endpoint};
 use poem_openapi::{Object, OpenApi, OpenApiService};
@@ -132,11 +132,18 @@ impl Api {
             .context("fail to find the auth user")?;
 
         let user = user.ok_or_else(|| anyhow!("invalid username or password"))?;
-        let password_hash = get_hash(credentials.password.expose_secret(), &user.salt)
-            .context("fail to validate credentials")?;
-        if password_hash != user.password_hashed {
-            return Err(anyhow!("invalid password").into());
-        }
+        let expected_hash = PasswordHash::new(&user.password_hashed).map_err(|e| {
+            anyhow!(format!(
+                "fail to extract hash in phc string format: {}",
+                e.to_string()
+            ))
+        })?;
+        Argon2::default()
+            .verify_password(
+                credentials.password.expose_secret().as_bytes(),
+                &expected_hash,
+            )
+            .map_err(|e| anyhow!(format!("hash phc string verify error: {}", e.to_string())))?;
         Ok(user.id)
     }
 }
@@ -188,8 +195,8 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
 
 pub fn get_hash(input: &String, salt: &String) -> anyhow::Result<String> {
     let argon2 = Argon2::default();
-    // let salt = SaltString::generate(&mut OsRng);
     let salt = general_purpose::STANDARD.encode(salt);
+    // here password_hash is already PHC format
     let password_hash = argon2
         .hash_password(input.as_bytes(), &salt)
         .map_err(|e| anyhow!(format!("fail to hash with argon2: {}", e.to_string())))?

@@ -9,7 +9,6 @@ pub struct Model {
     pub id: Uuid,
     pub user_name: String,
     pub password_hashed: String,
-    pub salt: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

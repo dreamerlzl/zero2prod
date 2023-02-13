@@ -149,7 +149,6 @@ pub async fn register_test_user(
         id: ActiveValue::Set(Uuid::new_v4()),
         user_name: ActiveValue::Set(test_user.username.clone()),
         password_hashed: ActiveValue::Set(password_hash),
-        salt: ActiveValue::Set(test_user.salt.clone()),
     };
     Users::insert(new_user).exec(db).await?;
     Ok(())

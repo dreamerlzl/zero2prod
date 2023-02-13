@@ -18,7 +18,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20221214_000003_make_status_not_null_in_subscription::Migration),
             Box::new(m20221225_000004_create_subscription_token_table::Migration),
             Box::new(m20230212_094638_create_user_table::Migration),
-            Box::new(m20230212_145120_add_salt_to_users::Migration),
+            // Box::new(m20230212_145120_add_salt_to_users::Migration),
         ]
     }
 }
