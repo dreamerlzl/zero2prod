@@ -7,7 +7,8 @@ use wiremock::{
 };
 
 use super::helpers::{
-    get_confirmation_link, get_test_app, post_subscription, ConfirmationLinks, TestApp,
+    get_confirmation_link, get_test_app, post_newsletters, post_subscription, ConfirmationLinks,
+    TestApp, TestUser,
 };
 
 #[sqlx::test]
@@ -89,6 +90,25 @@ async fn requests_without_authorization_are_rejected(pool: Pool<Postgres>) -> Re
         },
     });
     let resp = app.post_newsletters_without_auth(body).await;
+    resp.assert_status(StatusCode::UNAUTHORIZED);
+    resp.assert_header("WWW-Authenticate", r#"Basic realm="publish""#);
+    Ok(())
+}
+
+#[sqlx::test]
+async fn non_existing_user_is_rejected(pool: Pool<Postgres>) -> Result<()> {
+    let app = get_test_app(pool).await?;
+    let body = serde_json::json!({
+        "title": "Newsletter title",
+        "content": {
+            "text": "plain text",
+            "html": "<p>body as HTML</p>",
+        },
+    });
+
+    // we don't register this user yet
+    let test_user = TestUser::generate();
+    let resp = post_newsletters(&app.cli, &test_user, body).await;
     resp.assert_status(StatusCode::UNAUTHORIZED);
     resp.assert_header("WWW-Authenticate", r#"Basic realm="publish""#);
     Ok(())

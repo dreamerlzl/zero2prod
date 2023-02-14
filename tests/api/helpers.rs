@@ -105,21 +105,7 @@ impl TestApp {
     }
 
     pub async fn post_newsletters(&self, body: serde_json::Value) -> TestResponse {
-        self.cli
-            .post("/newsletters")
-            .body_json(&body)
-            .header(
-                "Authorization",
-                format!(
-                    "Basic {}",
-                    general_purpose::STANDARD.encode(format!(
-                        "{}:{}",
-                        self.test_user.username, self.test_user.password,
-                    ))
-                ),
-            )
-            .send()
-            .await
+        post_newsletters(&self.cli, &self.test_user, body).await
     }
 }
 
@@ -130,7 +116,7 @@ pub struct TestUser {
 }
 
 impl TestUser {
-    fn generate() -> Self {
+    pub fn generate() -> Self {
         Self {
             username: Uuid::new_v4().to_string(),
             password: Uuid::new_v4().to_string(),
@@ -152,4 +138,23 @@ pub async fn register_test_user(
     };
     Users::insert(new_user).exec(db).await?;
     Ok(())
+}
+
+pub async fn post_newsletters(
+    cli: &TestClient<Route>,
+    test_user: &TestUser,
+    body: serde_json::Value,
+) -> TestResponse {
+    cli.post("/newsletters")
+        .body_json(&body)
+        .header(
+            "Authorization",
+            format!(
+                "Basic {}",
+                general_purpose::STANDARD
+                    .encode(format!("{}:{}", test_user.username, test_user.password))
+            ),
+        )
+        .send()
+        .await
 }

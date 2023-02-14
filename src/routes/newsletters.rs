@@ -148,7 +148,9 @@ impl Api {
             .await
             .context("fail to find the auth user")?;
 
-        let user = user.ok_or_else(|| anyhow!("invalid username or password"))?;
+        let user = user
+            .ok_or_else(|| anyhow!("invalid username or password"))
+            .map_err(PublishError::AuthError)?;
         Ok(user)
     }
 }
