@@ -1,4 +1,6 @@
 # ov
+- a implementation of zero2prod but in poem + sea_orm
+  - poem supports built-in swagger
 - `serde_aux` is not needed since `config-rs` support deserialization of unsigned integers since 0.13.2
   - [the issue](https://github.com/mehcode/config-rs/issues/357)
 

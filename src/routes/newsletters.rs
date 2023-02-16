@@ -1,23 +1,20 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::{engine::general_purpose, Engine};
 use poem::{http::HeaderMap, web::Json, Endpoint};
 use poem_openapi::{Object, OpenApi, OpenApiService};
 use sea_orm::{ColumnTrait, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect};
-use secrecy::{ExposeSecret, Secret};
+use secrecy::Secret;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use super::{add_tracing, subscriptions::ConfirmStatus};
 use crate::{
+    auth::{validate_credentials, AuthError, Credentials},
     context::StateContext,
     domain::Email,
-    entities::{
-        subscriptions::{self, Entity as Subscriptions},
-        user::{self, Entity as Users},
-    },
+    entities::subscriptions::{self, Entity as Subscriptions},
     routes::ApiErrorResponse,
 };
 
@@ -126,42 +123,17 @@ impl Api {
 
     #[tracing::instrument(name = "validate user's credentials", skip(self, credentials))]
     async fn validate_credentials(&self, credentials: Credentials) -> Result<Uuid, PublishError> {
-        let user = self.get_user_by_credentials(&credentials).await?;
-        let current_span = tracing::Span::current();
-        tokio::task::spawn_blocking(move || {
-            current_span.in_scope(|| verify_password(user.password_hashed, credentials.password))
-        })
-        .await
-        .map_err(|e| anyhow!(format!("hash phc string verify error: {}", e.to_string())))??;
-
-        Ok(user.id)
-    }
-
-    #[tracing::instrument(name = "get user by provided credentials", skip(self, credentials))]
-    async fn get_user_by_credentials(
-        &self,
-        credentials: &Credentials,
-    ) -> Result<user::Model, PublishError> {
-        let user = Users::find()
-            .filter(user::Column::UserName.eq(&credentials.username))
-            .one(&self.context.db)
+        validate_credentials(&self.context.db, credentials)
             .await
-            .context("fail to find the auth user")?;
-
-        let user = user
-            .ok_or_else(|| anyhow!("invalid username or password"))
-            .map_err(PublishError::AuthError)?;
-        Ok(user)
+            .map_err(|e| match e {
+                AuthError::UnexpectedError(_) => PublishError::UnexpectedError(e.into()),
+                AuthError::InvalidCredentials(_) => PublishError::AuthError(e.into()),
+            })
     }
 }
 
 struct ConfirmedSubscriber {
     email: Email,
-}
-
-pub struct Credentials {
-    pub username: String,
-    pub password: Secret<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -198,29 +170,4 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
         .to_owned();
     let password = Secret::new(password);
     Ok(Credentials { username, password })
-}
-
-pub fn get_hash(input: &String, salt: &String) -> anyhow::Result<String> {
-    let argon2 = Argon2::default();
-    let salt = general_purpose::STANDARD.encode(salt);
-    // here password_hash is already PHC format
-    let password_hash = argon2
-        .hash_password(input.as_bytes(), &salt)
-        .map_err(|e| anyhow!(format!("fail to hash with argon2: {}", e.to_string())))?
-        .to_string();
-    Ok(password_hash)
-}
-
-#[tracing::instrument(name = "verify password", skip(phc, password))]
-fn verify_password(phc: String, password: Secret<String>) -> Result<(), PublishError> {
-    let expected_hash = PasswordHash::new(&phc).map_err(|e| {
-        anyhow!(format!(
-            "fail to extract hash in phc string format: {}",
-            e.to_string()
-        ))
-    })?;
-    Argon2::default()
-        .verify_password(password.expose_secret().as_bytes(), &expected_hash)
-        .map_err(|e| anyhow!(format!("fail to verify password: {}", e.to_string())))?;
-    Ok(())
 }

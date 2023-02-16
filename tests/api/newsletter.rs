@@ -114,6 +114,24 @@ async fn non_existing_user_is_rejected(pool: Pool<Postgres>) -> Result<()> {
     Ok(())
 }
 
+#[sqlx::test]
+async fn invalid_password_is_rejected(pool: Pool<Postgres>) -> Result<()> {
+    let app = get_test_app(pool).await?;
+    let mut test_user = TestUser::generate();
+    test_user.username = app.test_user.username;
+    let body = serde_json::json!({
+        "title": "Newsletter title",
+        "content": {
+            "text": "plain text",
+            "html": "<p>body as HTML</p>",
+        },
+    });
+    let resp = post_newsletters(&app.cli, &test_user, body).await;
+    resp.assert_status(StatusCode::UNAUTHORIZED);
+    resp.assert_header("WWW-Authenticate", r#"Basic realm="publish""#);
+    Ok(())
+}
+
 async fn create_unconfirmed_subscriber(app: &TestApp) -> ConfirmationLinks {
     // mount_as_scoped -> the mock would no longer work after _guard is dropped
     let _guard = Mock::given(path("/email"))

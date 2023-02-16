@@ -15,12 +15,12 @@ use sea_orm::*;
 use sea_orm_migration::prelude::*;
 use sqlx::{Pool, Postgres};
 use wiremock::MockServer;
+use zero2prod_api::auth::get_hash;
 use zero2prod_api::configuration::get_test_configuration;
 use zero2prod_api::context::StateContext;
 use zero2prod_api::domain::Email;
 use zero2prod_api::entities::user::{self, Entity as Users};
 use zero2prod_api::routes::default_route;
-use zero2prod_api::routes::newsletters::get_hash;
 use zero2prod_api::setup_logger;
 
 pub async fn post_subscription<T: 'static + Into<Body>>(
@@ -107,10 +107,23 @@ impl TestApp {
     pub async fn post_newsletters(&self, body: serde_json::Value) -> TestResponse {
         post_newsletters(&self.cli, &self.test_user, body).await
     }
+
+    pub async fn post_login<Body>(&self, body: &Body) -> TestResponse
+    where
+        Body: serde::Serialize,
+    {
+        self.cli.post("/login").form(body).send().await
+    }
+
+    pub async fn get_login_html(&self) -> String {
+        let mut resp = self.cli.get("/login").send().await;
+        resp.0.take_body().into_string().await.unwrap()
+    }
 }
 
+#[derive(Clone)]
 pub struct TestUser {
-    username: String,
+    pub username: String,
     password: String,
     salt: String,
 }

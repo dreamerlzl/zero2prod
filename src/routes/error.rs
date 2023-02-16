@@ -6,6 +6,7 @@ use tracing::error;
 
 use super::newsletters::PublishError;
 
+// see https://docs.rs/poem-openapi/latest/poem_openapi/derive.ApiResponse.html and https://github.com/poem-web/poem/issues/475
 #[derive(ApiResponse, Debug, Error)]
 #[oai(display)]
 pub enum ApiErrorResponse {
@@ -13,7 +14,7 @@ pub enum ApiErrorResponse {
     BadRequest(PlainText<String>),
 
     #[oai(status = 401)]
-    AuthError(#[oai(header = "WWW-Authenticate")] String),
+    AuthError(#[oai(header = "WWW-Authenticate")] Option<String>),
 
     #[oai(status = 500)]
     InternalServerError,
@@ -32,8 +33,9 @@ impl Display for ApiErrorResponse {
 impl From<PublishError> for ApiErrorResponse {
     fn from(value: PublishError) -> Self {
         match value {
-            PublishError::AuthError(_) => {
-                ApiErrorResponse::AuthError(r#"Basic realm="publish""#.to_owned())
+            PublishError::AuthError(e) => {
+                error!(error = e.to_string(), "auth error");
+                ApiErrorResponse::AuthError(Some(r#"Basic realm="publish""#.to_owned()))
             }
             PublishError::UnexpectedError(e) => {
                 error!(error = e.to_string(), "unexpected publish error");
