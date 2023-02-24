@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
@@ -7,24 +5,28 @@ use fake::{faker::internet::en::SafeEmail, Fake};
 use linkify::LinkFinder;
 use migration::{Migrator, MigratorTrait};
 use once_cell::sync::Lazy;
+use poem::listener::TcpListener;
+use poem::middleware::CookieJarManagerEndpoint;
+use poem::session::{CookieConfig, RedisStorage, ServerSession, ServerSessionEndpoint};
 use poem::test::{TestClient, TestResponse};
-use poem::{Body, Route};
+use poem::{Body, EndpointExt, Route, Server};
+use redis::aio::ConnectionManager;
+use redis::Client;
 use sea_orm::prelude::Uuid;
 use sea_orm::DatabaseConnection;
 use sea_orm::*;
 use sea_orm_migration::prelude::*;
+use secrecy::ExposeSecret;
 use sqlx::{Pool, Postgres};
 use wiremock::MockServer;
-use zero2prod_api::auth::get_hash;
 use zero2prod_api::configuration::get_test_configuration;
 use zero2prod_api::context::StateContext;
 use zero2prod_api::domain::Email;
-use zero2prod_api::entities::user::{self, Entity as Users};
 use zero2prod_api::routes::default_route;
 use zero2prod_api::setup_logger;
 
 pub async fn post_subscription<T: 'static + Into<Body>>(
-    cli: &TestClient<Route>,
+    cli: &TestClient<ClientType>,
     data: T,
 ) -> TestResponse {
     cli.post("/subscriptions")
@@ -69,8 +71,11 @@ static TRACING: Lazy<()> = Lazy::new(|| {
     }
 });
 
+type ClientType =
+    CookieJarManagerEndpoint<ServerSessionEndpoint<RedisStorage<ConnectionManager>, Route>>;
+
 pub struct TestApp {
-    pub cli: TestClient<Route>,
+    pub cli: TestClient<ClientType>,
     pub db: DatabaseConnection,
     pub email_server: MockServer,
     pub test_user: TestUser,
@@ -86,8 +91,11 @@ pub async fn get_test_app(pool: Pool<Postgres>) -> Result<TestApp> {
     let mut context = StateContext::new(conf.clone()).await?;
     context.db = db.clone();
 
-    let context = Arc::new(context);
-    let app = default_route(conf, context).await;
+    let client = Client::open(conf.redis_uri.expose_secret().clone())?;
+    let app = default_route(conf, context).await.with(ServerSession::new(
+        CookieConfig::default(),
+        RedisStorage::new(ConnectionManager::new(client).await?),
+    ));
     let cli = TestClient::new(app);
     let test_user = TestUser::generate();
     register_test_user(&db, &test_user).await?;
@@ -107,24 +115,12 @@ impl TestApp {
     pub async fn post_newsletters(&self, body: serde_json::Value) -> TestResponse {
         post_newsletters(&self.cli, &self.test_user, body).await
     }
-
-    pub async fn post_login<Body>(&self, body: &Body) -> TestResponse
-    where
-        Body: serde::Serialize,
-    {
-        self.cli.post("/login").form(body).send().await
-    }
-
-    pub async fn get_login_html(&self) -> String {
-        let mut resp = self.cli.get("/login").send().await;
-        resp.0.take_body().into_string().await.unwrap()
-    }
 }
 
 #[derive(Clone)]
 pub struct TestUser {
     pub username: String,
-    password: String,
+    pub password: String,
     salt: String,
 }
 
@@ -142,19 +138,17 @@ pub async fn register_test_user(
     db: &DatabaseConnection,
     test_user: &TestUser,
 ) -> anyhow::Result<()> {
-    let password_hash =
-        get_hash(&test_user.password, &test_user.salt).context("fail to register_test_user")?;
-    let new_user = user::ActiveModel {
-        id: ActiveValue::Set(Uuid::new_v4()),
-        user_name: ActiveValue::Set(test_user.username.clone()),
-        password_hashed: ActiveValue::Set(password_hash),
-    };
-    Users::insert(new_user).exec(db).await?;
-    Ok(())
+    zero2prod_api::auth::register_test_user(
+        db,
+        &test_user.username,
+        &test_user.password,
+        &test_user.salt,
+    )
+    .await
 }
 
 pub async fn post_newsletters(
-    cli: &TestClient<Route>,
+    cli: &TestClient<ClientType>,
     test_user: &TestUser,
     body: serde_json::Value,
 ) -> TestResponse {
@@ -170,4 +164,90 @@ pub async fn post_newsletters(
         )
         .send()
         .await
+}
+
+pub struct TestAppWithCookie {
+    cookie_cli: reqwest::Client,
+    db: DatabaseConnection,
+    pub test_user: TestUser,
+    address: String,
+    email_server: MockServer,
+}
+
+impl TestAppWithCookie {
+    pub async fn post_login<Body>(&self, body: &Body) -> Result<reqwest::Response, reqwest::Error>
+    where
+        Body: serde::Serialize,
+    {
+        self.cookie_cli
+            .post(format!("{}/login", self.address))
+            .form(body)
+            .send()
+            .await
+    }
+
+    pub async fn get_login_html(&self) -> Result<String, reqwest::Error> {
+        let resp = self
+            .cookie_cli
+            .get(format!("{}/login", self.address))
+            .send()
+            .await?;
+        resp.text().await
+    }
+
+    pub async fn get_admin_dashboard(&self) -> Result<reqwest::Response, reqwest::Error> {
+        self.cookie_cli
+            .get(format!("{}/admin/dashboard", self.address))
+            .send()
+            .await
+    }
+}
+
+pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWithCookie> {
+    Lazy::force(&TRACING);
+    let db = SqlxPostgresConnector::from_sqlx_postgres_pool(pool);
+    Migrator::refresh(&db).await?;
+    let email_server = MockServer::start().await;
+    let mut conf = get_test_configuration("config/test").expect("fail to get conf");
+    conf.email_client.api_base_url = email_server.uri();
+    let mut context = StateContext::new(conf.clone()).await?;
+    context.db = db.clone();
+
+    let client = Client::open(conf.redis_uri.expose_secret().clone())?;
+    let app = default_route(conf, context).await.with(ServerSession::new(
+        CookieConfig::default(),
+        RedisStorage::new(ConnectionManager::new(client).await?),
+    ));
+    let app_port = std::net::TcpListener::bind(format!("127.0.0.1:{}", 0))?
+        .local_addr()
+        .context("fail to get local addr")?
+        .port();
+    let addr = format!("127.0.0.1:{}", app_port);
+    tokio::spawn(async move {
+        Server::new(TcpListener::bind(addr))
+            .run(app)
+            .await
+            .expect("fail to create a new test server");
+    });
+
+    let test_user = TestUser::generate();
+    register_test_user(&db, &test_user)
+        .await
+        .context("fail to register test user")?;
+    let cookie_cli = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .cookie_store(true)
+        .build()?;
+    Ok(TestAppWithCookie {
+        address: format!("http://127.0.0.1:{}", app_port),
+        cookie_cli,
+        db,
+        email_server,
+        test_user,
+    })
+}
+
+pub fn assert_is_redirect_to(resp: &reqwest::Response, uri: &str) {
+    assert_eq!(resp.status().as_u16(), 303);
+    assert_eq!(resp.headers().get::<&str>("Location").unwrap(), uri);
 }

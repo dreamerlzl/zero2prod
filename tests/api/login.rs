@@ -1,29 +1,56 @@
-use std::collections::HashSet;
-
-use anyhow::Result;
-use poem::http::HeaderValue;
-use reqwest::StatusCode;
+use anyhow::{Context, Result};
 use sqlx::{Pool, Postgres};
 
-use super::helpers::get_test_app;
+use super::helpers::{assert_is_redirect_to, get_test_app_with_cookie};
 
 #[sqlx::test]
 async fn an_error_flash_message_is_set_on_failure(pool: Pool<Postgres>) -> Result<()> {
-    let app = get_test_app(pool).await?;
+    let app = get_test_app_with_cookie(pool).await?;
     let body = serde_json::json!(
     {
         "username": "random-username",
         "password": "random-password",
     }
     );
-    let resp = app.post_login(&body).await;
-    resp.assert_status(StatusCode::SEE_OTHER);
-    #[allow(clippy::mutable_key_type)]
-    let cookies: HashSet<_> = resp.0.headers().get_all("Set-Cookie").into_iter().collect();
-    assert!(cookies.contains(&HeaderValue::from_str("_flash=Authentication failed")?));
-    // poem's TestClient doesn't support cookie store
-    //let html_page = app.get_login_html().await;
-    //println!("{:?}", &html_page);
-    //assert!(html_page.contains(r#"<p><i>Authentication failed</i></p>"#));
+    let resp = app.post_login(&body).await?;
+    assert_is_redirect_to(&resp, "/login");
+    let flash_cookie = resp.cookies().find(|c| c.name() == "_flash").unwrap();
+    assert_eq!(flash_cookie.value(), "Authentication failed");
+    let html_page = app.get_login_html().await?;
+    assert!(
+        html_page.contains(r#"<p><i>Authentication failed</i></p>"#),
+        "{}",
+        html_page
+    );
+    // Act - Part 3 - Reload the login page
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    let html_page = app.get_login_html().await?;
+    assert!(
+        !html_page.contains(r#"<p><i>Authentication failed</i></p>"#),
+        "{}",
+        html_page
+    );
+    Ok(())
+}
+
+#[sqlx::test]
+async fn redirect_to_admin_dashboard_after_login(pool: Pool<Postgres>) -> Result<()> {
+    let app = get_test_app_with_cookie(pool)
+        .await
+        .context("fail to init app with cookie")?;
+    let body = serde_json::json!(
+    {
+        "username": app.test_user.username,
+        "password": app.test_user.password,
+    }
+    );
+    let resp = app.post_login(&body).await.context("fail to post login")?;
+    assert_is_redirect_to(&resp, "/admin/dashboard");
+    let html_page = app.get_admin_dashboard().await?.text().await?;
+    assert!(
+        html_page.contains(&format!("Welcome {}", app.test_user.username)),
+        "the html page content is '{}'",
+        html_page
+    );
     Ok(())
 }

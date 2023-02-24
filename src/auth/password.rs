@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use argon2::{Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::{engine::general_purpose, Engine};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use secrecy::{ExposeSecret, Secret};
 use uuid::Uuid;
 
@@ -80,7 +80,7 @@ fn verify_password(phc: String, password: Secret<String>) -> Result<(), AuthErro
     Ok(())
 }
 
-pub fn get_hash(input: &String, salt: &String) -> Result<String, anyhow::Error> {
+pub fn get_hash(input: &str, salt: &str) -> Result<String, anyhow::Error> {
     let salt = general_purpose::STANDARD.encode(salt);
     // here password_hash is already PHC format
     let password_hash = Argon2::new(
@@ -92,4 +92,20 @@ pub fn get_hash(input: &String, salt: &String) -> Result<String, anyhow::Error> 
     .map_err(|e| anyhow!(format!("fail to hash with argon2: {}", e)))?
     .to_string();
     Ok(password_hash)
+}
+
+pub async fn register_test_user(
+    db: &DatabaseConnection,
+    username: &str,
+    password: &str,
+    salt: &str,
+) -> anyhow::Result<()> {
+    let password_hash = get_hash(password, salt).context("fail to register_test_user")?;
+    let new_user = user::ActiveModel {
+        id: ActiveValue::Set(Uuid::new_v4()),
+        user_name: ActiveValue::Set(username.to_owned()),
+        password_hashed: ActiveValue::Set(password_hash),
+    };
+    Users::insert(new_user).exec(db).await?;
+    Ok(())
 }

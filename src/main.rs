@@ -1,7 +1,10 @@
-use std::sync::Arc;
-
 use anyhow::Result;
+use poem::session::{CookieConfig, RedisStorage, ServerSession};
+use poem::EndpointExt;
 use poem::{listener::TcpListener, Server};
+use redis::aio::ConnectionManager;
+use redis::Client;
+use secrecy::ExposeSecret;
 use tracing::info;
 use zero2prod_api::configuration::get_configuration;
 use zero2prod_api::context::StateContext;
@@ -15,15 +18,20 @@ async fn main() -> Result<()> {
     let conf = get_configuration().expect("fail to read configuration");
 
     let app_port = conf.app.port;
+    let redis_uri = conf.redis_uri.expose_secret().clone();
     let context = StateContext::new(conf.clone()).await?;
-    let context = Arc::new(context);
 
     // set routing
     let route = default_route(conf, context.clone()).await;
+    let client = Client::open(redis_uri)?;
+    let app = route.with(ServerSession::new(
+        CookieConfig::default(),
+        RedisStorage::new(ConnectionManager::new(client).await?),
+    ));
 
     // start the tcp listener
     let addr = format!("0.0.0.0:{}", app_port);
     info!(addr, "zero2prod listening on");
-    Server::new(TcpListener::bind(addr)).run(route).await?;
+    Server::new(TcpListener::bind(addr)).run(app).await?;
     Ok(())
 }

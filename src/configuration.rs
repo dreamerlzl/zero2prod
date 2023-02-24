@@ -14,6 +14,7 @@ pub struct Configuration {
     pub app: AppSettings,
     pub db: RelationalDBSettings,
     pub email_client: EmailClientSettings,
+    pub redis_uri: Secret<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -21,6 +22,8 @@ pub struct Configuration {
 pub struct AppSettings {
     pub port: u16,
     pub base_url: String,
+    pub admin_username: String,
+    pub admin_password: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -148,7 +151,7 @@ mod tests {
         assert_eq!(conf.db.host, "localhost");
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app.port, 8081);
-        assert_eq!(conf.db.require_ssl, true);
+        assert!(conf.db.require_ssl);
 
         env::remove_var("APP__APP_PORT");
         env::remove_var("APP__DB__USERNAME");
@@ -170,7 +173,7 @@ mod tests {
         let path_str = format!("config/test-{}.yaml", get_random_str());
         let path = Path::new(&path_str);
         {
-            let mut file = File::create(&path).expect("fail to create the test configuration yaml");
+            let mut file = File::create(path).expect("fail to create the test configuration yaml");
             let content = "
 app:
   port: 1234
@@ -197,7 +200,7 @@ db:
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app.port, 1234);
-        assert_eq!(conf.db.require_ssl, true);
+        assert!(conf.db.require_ssl);
         assert_eq!(conf.email_client.sender_email, "something@gmail.com");
         assert_eq!(
             conf.email_client.api_base_url,
@@ -218,7 +221,7 @@ db:
         let path_str = format!("config/test-{}.yaml", get_random_str());
         let path = Path::new(&path_str);
         {
-            let mut file = File::create(&path).expect("fail to create the test configuration yaml");
+            let mut file = File::create(path).expect("fail to create the test configuration yaml");
             let content = "
 app:
   port: 1234
@@ -248,7 +251,7 @@ db:
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app.port, 1234);
-        assert_eq!(conf.db.require_ssl, false);
+        assert!(conf.db.require_ssl);
         remove_file(path).expect("fail to remove test config");
 
         env::remove_var("APP__DB__PASSWORD");

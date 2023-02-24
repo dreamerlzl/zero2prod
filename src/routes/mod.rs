@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use poem::middleware::Tracing;
 use poem::{get, Route};
 use poem::{Endpoint, EndpointExt};
@@ -8,6 +6,7 @@ use self::health::health_check;
 use crate::configuration::Configuration;
 use crate::context::StateContext;
 
+mod admin;
 mod error;
 pub mod health;
 mod home;
@@ -16,7 +15,7 @@ pub mod newsletters;
 pub mod subscriptions;
 pub use error::ApiErrorResponse;
 
-pub async fn default_route(conf: Configuration, context: Arc<StateContext>) -> Route {
+pub async fn default_route(conf: Configuration, context: StateContext) -> Route {
     let mut route = Route::new()
         .at("/api/v1/health_check", get(health_check))
         .at("/", get(home::home));
@@ -37,8 +36,12 @@ pub async fn default_route(conf: Configuration, context: Arc<StateContext>) -> R
         .nest("/newsletters", newsletters_service)
         .nest("/newsletters/docs", ui);
 
-    let (login_service, ui) = login::get_api_service(context, &format!("{server_url}/login"));
+    let (login_service, ui) =
+        login::get_api_service(context.clone(), &format!("{server_url}/login"));
     route = route.nest("/login", login_service).nest("/login/docs", ui);
+
+    let (admin_service, _) = admin::get_admin_service(context, &format!("{server_url}/admin"));
+    route = route.nest("/admin", admin_service);
     route
 }
 

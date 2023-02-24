@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, sync::Arc};
+use std::convert::TryFrom;
 
 use poem::Endpoint;
 use poem_openapi::{
@@ -22,11 +22,11 @@ use crate::{
 };
 
 pub struct Api {
-    context: Arc<StateContext>,
+    context: StateContext,
 }
 
 pub fn get_api_service(
-    context: Arc<StateContext>,
+    context: StateContext,
     server_url: &str,
 ) -> (OpenApiService<Api, ()>, impl Endpoint) {
     let api_service = OpenApiService::new(Api::new(context), "subscribe", "0.1").server(server_url);
@@ -35,7 +35,7 @@ pub fn get_api_service(
 }
 
 impl Api {
-    pub fn new(context: Arc<StateContext>) -> Self {
+    pub fn new(context: StateContext) -> Self {
         Self { context }
     }
 

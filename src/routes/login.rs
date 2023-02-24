@@ -1,7 +1,6 @@
-use std::sync::Arc;
-
 use poem::{
     http::{header::LOCATION, status::StatusCode},
+    session::Session,
     Endpoint,
 };
 use poem_openapi::{
@@ -16,14 +15,15 @@ use super::add_tracing;
 use crate::{
     auth::{validate_credentials, AuthError, Credentials},
     context::StateContext,
+    session_state::USER_ID_KEY,
 };
 
 pub struct Api {
-    context: Arc<StateContext>,
+    context: StateContext,
 }
 
 pub fn get_api_service(
-    context: Arc<StateContext>,
+    context: StateContext,
     server_url: &str,
 ) -> (OpenApiService<Api, ()>, impl Endpoint) {
     let api_service = OpenApiService::new(Api::new(context), "login", "0.1").server(server_url);
@@ -81,7 +81,11 @@ impl Api {
     // for poem, we could use this https://docs.rs/poem/latest/poem/web/struct.Redirect.html
     // #[instrument(name = "user attemps to new login", skip(self, form))]
     #[oai(path = "/", method = "post", transform = "add_tracing")]
-    async fn post_login(&self, form: Form<LoginFrom>) -> Result<Response<()>, poem::Error> {
+    async fn post_login(
+        &self,
+        form: Form<LoginFrom>,
+        session: &Session,
+    ) -> Result<Response<()>, poem::Error> {
         let credentials = Credentials {
             username: form.0.username,
             password: Secret::new(form.0.password),
@@ -89,9 +93,12 @@ impl Api {
         match validate_credentials(&self.context.db, credentials).await {
             Ok(user_id) => {
                 tracing::Span::current().record("user_id", &tracing::field::display(&user_id));
+                // to avoid session fixation attacks
+                session.renew();
+                session.set(USER_ID_KEY, user_id);
                 Ok(Response::new(())
                     .status(StatusCode::SEE_OTHER)
-                    .header(LOCATION, "/"))
+                    .header(LOCATION, "/admin/dashboard"))
             }
             Err(e) => {
                 let e = match e {
@@ -130,7 +137,7 @@ enum LoginError {
 }
 
 impl Api {
-    fn new(context: Arc<StateContext>) -> Self {
+    fn new(context: StateContext) -> Self {
         Api { context }
     }
 }

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::{anyhow, Context};
 use base64::{engine::general_purpose, Engine};
 use poem::{http::HeaderMap, web::Json, Endpoint};
@@ -19,11 +17,11 @@ use crate::{
 };
 
 pub struct Api {
-    context: Arc<StateContext>,
+    context: StateContext,
 }
 
 pub fn get_api_service(
-    context: Arc<StateContext>,
+    context: StateContext,
     server_url: &str,
 ) -> (OpenApiService<Api, ()>, impl Endpoint) {
     let api_service =
@@ -89,7 +87,7 @@ struct Content {
 }
 
 impl Api {
-    fn new(context: Arc<StateContext>) -> Self {
+    fn new(context: StateContext) -> Self {
         Api { context }
     }
 

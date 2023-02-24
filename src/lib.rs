@@ -10,6 +10,7 @@ pub mod domain;
 pub mod email_client;
 pub mod entities;
 pub mod routes;
+pub mod session_state;
 mod startup;
 
 pub use startup::{get_database_connection, get_email_client};
