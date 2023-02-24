@@ -2,16 +2,12 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use poem::http::StatusCode;
-use sea_orm::prelude::Uuid;
-use sea_orm::*;
+use sea_orm::{prelude::Uuid, *};
 use sqlx::{Pool, Postgres};
-use wiremock::Mock;
-use wiremock::{matchers::path, ResponseTemplate};
-use zero2prod_api::entities::subscriptions;
-use zero2prod_api::routes::subscriptions::ConfirmStatus;
+use wiremock::{matchers::path, Mock, ResponseTemplate};
+use zero2prod_api::{entities::subscriptions, routes::subscriptions::ConfirmStatus};
 
-use crate::api::helpers::get_test_app;
-use crate::api::helpers::{email, get_first_link, post_subscription};
+use crate::api::helpers::{email, get_first_link, get_test_app, post_subscription};
 
 #[sqlx::test]
 async fn subscribe_returns_a_200_for_valid_form_data(pool: Pool<Postgres>) -> Result<()> {

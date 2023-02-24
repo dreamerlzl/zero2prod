@@ -1,6 +1,7 @@
-use super::helpers::{assert_is_redirect_to, get_test_app_with_cookie};
 use anyhow::Result;
 use sqlx::{Pool, Postgres};
+
+use super::helpers::{assert_is_redirect_to, get_test_app_with_cookie};
 
 #[sqlx::test]
 async fn must_be_logged_in_to_access_the_board(pool: Pool<Postgres>) -> Result<()> {

@@ -1,10 +1,7 @@
-use poem::middleware::Tracing;
-use poem::{get, Route};
-use poem::{Endpoint, EndpointExt};
+use poem::{get, middleware::Tracing, Endpoint, EndpointExt, Route};
 
 use self::health::health_check;
-use crate::configuration::Configuration;
-use crate::context::StateContext;
+use crate::{configuration::Configuration, context::StateContext};
 
 mod admin;
 mod error;

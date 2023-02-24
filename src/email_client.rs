@@ -79,8 +79,10 @@ mod tests {
         },
         Fake, Faker,
     };
-    use wiremock::matchers::{any, header, header_exists, method, path};
-    use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+    use wiremock::{
+        matchers::{any, header, header_exists, method, path},
+        Mock, MockServer, Request, ResponseTemplate,
+    };
 
     use super::EmailClient;
     use crate::domain::Email;

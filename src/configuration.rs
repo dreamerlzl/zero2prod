@@ -113,8 +113,12 @@ pub fn get_test_configuration(path: &str) -> Result<Configuration, config::Confi
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{create_dir_all, remove_file, File};
-    use std::{env, io::Write, path::Path};
+    use std::{
+        env,
+        fs::{create_dir_all, remove_file, File},
+        io::Write,
+        path::Path,
+    };
 
     use rand::{distributions::Alphanumeric, Rng};
     use secrecy::ExposeSecret;

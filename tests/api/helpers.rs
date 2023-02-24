@@ -1,29 +1,26 @@
 use anyhow::{Context, Result};
-use base64::engine::general_purpose;
-use base64::Engine;
+use base64::{engine::general_purpose, Engine};
 use fake::{faker::internet::en::SafeEmail, Fake};
 use linkify::LinkFinder;
 use migration::{Migrator, MigratorTrait};
 use once_cell::sync::Lazy;
-use poem::listener::TcpListener;
-use poem::middleware::CookieJarManagerEndpoint;
-use poem::session::{CookieConfig, RedisStorage, ServerSession, ServerSessionEndpoint};
-use poem::test::{TestClient, TestResponse};
-use poem::{Body, EndpointExt, Route, Server};
-use redis::aio::ConnectionManager;
-use redis::Client;
-use sea_orm::prelude::Uuid;
-use sea_orm::DatabaseConnection;
-use sea_orm::*;
+use poem::{
+    listener::TcpListener,
+    middleware::CookieJarManagerEndpoint,
+    session::{CookieConfig, RedisStorage, ServerSession, ServerSessionEndpoint},
+    test::{TestClient, TestResponse},
+    Body, EndpointExt, Route, Server,
+};
+use redis::{aio::ConnectionManager, Client};
+use sea_orm::{prelude::Uuid, DatabaseConnection, *};
 use sea_orm_migration::prelude::*;
 use secrecy::ExposeSecret;
 use sqlx::{Pool, Postgres};
 use wiremock::MockServer;
-use zero2prod_api::configuration::get_test_configuration;
-use zero2prod_api::context::StateContext;
-use zero2prod_api::domain::Email;
-use zero2prod_api::routes::default_route;
-use zero2prod_api::setup_logger;
+use zero2prod_api::{
+    configuration::get_test_configuration, context::StateContext, domain::Email,
+    routes::default_route, setup_logger,
+};
 
 pub async fn post_subscription<T: 'static + Into<Body>>(
     cli: &TestClient<ClientType>,

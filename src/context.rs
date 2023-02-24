@@ -1,11 +1,14 @@
-use sea_orm::DatabaseConnection;
 use std::sync::Arc;
+
+use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use crate::auth::register_test_user;
-use crate::configuration::Configuration;
-use crate::email_client::EmailClient;
-use crate::startup::{get_database_connection, get_email_client};
+use crate::{
+    auth::register_test_user,
+    configuration::Configuration,
+    email_client::EmailClient,
+    startup::{get_database_connection, get_email_client},
+};
 
 #[derive(Clone)]
 pub struct StateContext {

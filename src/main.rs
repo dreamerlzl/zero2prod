@@ -1,15 +1,15 @@
 use anyhow::Result;
-use poem::session::{CookieConfig, RedisStorage, ServerSession};
-use poem::EndpointExt;
-use poem::{listener::TcpListener, Server};
-use redis::aio::ConnectionManager;
-use redis::Client;
+use poem::{
+    listener::TcpListener,
+    session::{CookieConfig, RedisStorage, ServerSession},
+    EndpointExt, Server,
+};
+use redis::{aio::ConnectionManager, Client};
 use secrecy::ExposeSecret;
 use tracing::info;
-use zero2prod_api::configuration::get_configuration;
-use zero2prod_api::context::StateContext;
-use zero2prod_api::routes::default_route;
-use zero2prod_api::setup_logger;
+use zero2prod_api::{
+    configuration::get_configuration, context::StateContext, routes::default_route, setup_logger,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {

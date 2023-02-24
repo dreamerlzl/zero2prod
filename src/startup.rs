@@ -4,8 +4,10 @@ use sea_orm_migration::prelude::*;
 use sqlx::PgPool;
 use tracing::info;
 
-use crate::configuration::{EmailClientSettings, RelationalDBSettings};
-use crate::email_client::EmailClient;
+use crate::{
+    configuration::{EmailClientSettings, RelationalDBSettings},
+    email_client::EmailClient,
+};
 
 pub async fn get_database_connection(sql: RelationalDBSettings) -> Result<DatabaseConnection> {
     let db_url = format!(

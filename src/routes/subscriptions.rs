@@ -6,8 +6,7 @@ use poem_openapi::{
     payload::{Form, Json, PlainText},
     Object, OpenApi, OpenApiService,
 };
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sea_orm::*;
 use serde::Deserialize;
 use tracing::{error, warn};
