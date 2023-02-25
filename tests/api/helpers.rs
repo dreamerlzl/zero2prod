@@ -198,6 +198,26 @@ impl TestAppWithCookie {
             .send()
             .await
     }
+
+    pub async fn get_change_password(&self) -> reqwest::Response {
+        self.cookie_cli
+            .get(format!("{}/admin/password", &self.address))
+            .send()
+            .await
+            .expect("failed to get /admin/password")
+    }
+
+    pub async fn post_change_password<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.cookie_cli
+            .post(format!("{}/admin/password", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("failed to post password change")
+    }
 }
 
 pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWithCookie> {

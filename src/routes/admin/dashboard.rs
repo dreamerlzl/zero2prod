@@ -1,5 +1,5 @@
 use poem::session::Session;
-use poem_openapi::{payload::Html, OpenApi};
+use poem_openapi::{payload::Html, OpenApi, OpenApiService};
 use reqwest::{header::LOCATION, StatusCode};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use tracing::{error, warn};

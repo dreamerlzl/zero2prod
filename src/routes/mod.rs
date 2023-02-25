@@ -37,8 +37,9 @@ pub async fn default_route(conf: Configuration, context: StateContext) -> Route 
         login::get_api_service(context.clone(), &format!("{server_url}/login"));
     route = route.nest("/login", login_service).nest("/login/docs", ui);
 
-    let (admin_service, _) = admin::get_admin_service(context, &format!("{server_url}/admin"));
+    let (admin_service, _) = admin::get_api_service(context, &format!("{server_url}/admin"));
     route = route.nest("/admin", admin_service);
+
     route
 }
 
