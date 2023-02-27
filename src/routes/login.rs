@@ -15,7 +15,8 @@ use super::add_tracing;
 use crate::{
     auth::{validate_credentials, AuthError, Credentials},
     context::StateContext,
-    session_state::USER_ID_KEY,
+    session_state::{FLASH_KEY, USER_ID_KEY},
+    utils::see_other_with_cookie,
 };
 
 pub struct Api {
@@ -40,7 +41,7 @@ impl Api {
         // see https://github.com/poem-web/poem/blob/74e6dd3d2badaca4fea44fb66568d7e37f13e3a5/poem-openapi/tests/operation_param.rs
         // espeically "cookie_rename"
         let mut error = String::new();
-        if let Some(cookie) = cookiejar.get("_flash") {
+        if let Some(cookie) = cookiejar.get(FLASH_KEY) {
             error = format!("<p><i>{}</i></p>", cookie.value_str().to_owned());
         } else {
             tracing::error!("no cookie entry with name _flash!");
@@ -105,17 +106,7 @@ impl Api {
                     AuthError::InvalidCredentials(_) => LoginError::AuthError(e.into()),
                     AuthError::UnexpectedError(_) => LoginError::UnexpectedError(e.into()),
                 };
-                let resp = poem::Response::builder()
-                    .status(StatusCode::SEE_OTHER)
-                    .header(LOCATION, "/login")
-                    // a session cookie; Secure means the cookie would be attached when accessing
-                    // via https or localhost
-                    .header(
-                        "Set-Cookie",
-                        format!("_flash={e}; Max-Age=1; Secure; HttpOnly"),
-                    )
-                    .finish();
-                Err(poem::Error::from_response(resp))
+                Err(see_other_with_cookie("/login", &e.to_string()))
             }
         }
     }

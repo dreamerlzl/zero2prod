@@ -7,7 +7,10 @@ use sqlx::{Pool, Postgres};
 use wiremock::{matchers::path, Mock, ResponseTemplate};
 use zero2prod_api::{entities::subscriptions, routes::subscriptions::ConfirmStatus};
 
-use crate::api::helpers::{email, get_first_link, get_test_app, post_subscription};
+use crate::{
+    api::helpers::{email, get_first_link, get_test_app, post_subscription},
+    normal_test,
+};
 
 #[sqlx::test]
 async fn subscribe_returns_a_200_for_valid_form_data(pool: Pool<Postgres>) -> Result<()> {
@@ -53,10 +56,7 @@ async fn subscribe_persists_the_new_subscriber(pool: Pool<Postgres>) -> Result<(
     Ok(())
 }
 
-#[sqlx::test]
-async fn subscribe_returns_400_for_invalid_data(pool: Pool<Postgres>) -> Result<()> {
-    let test_app = get_test_app(pool).await?;
-    let cli = &test_app.cli;
+normal_test!(subscribe_returns_400_for_invalid_data, [app] {
     let invalid_data = [
         "",
         "username=lzl",
@@ -66,11 +66,10 @@ async fn subscribe_returns_400_for_invalid_data(pool: Pool<Postgres>) -> Result<
     ];
 
     for data in invalid_data.into_iter() {
-        let resp = post_subscription(cli, data).await;
+        let resp = post_subscription(&app.cli, data).await;
         resp.assert_status(StatusCode::BAD_REQUEST);
     }
-    Ok(())
-}
+});
 
 #[sqlx::test]
 async fn subscribe_returns_a_confirmation_email(pool: Pool<Postgres>) -> Result<()> {

@@ -218,6 +218,10 @@ impl TestAppWithCookie {
             .await
             .expect("failed to post password change")
     }
+
+    pub async fn get_change_password_html(&self) -> String {
+        self.get_change_password().await.text().await.unwrap()
+    }
 }
 
 pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWithCookie> {

@@ -1,11 +1,9 @@
-use anyhow::{Context, Result};
-use sqlx::{Pool, Postgres};
+use anyhow::Context;
 
-use super::helpers::{assert_is_redirect_to, get_test_app_with_cookie};
+use super::helpers::assert_is_redirect_to;
+use crate::cookie_test;
 
-#[sqlx::test]
-async fn an_error_flash_message_is_set_on_failure(pool: Pool<Postgres>) -> Result<()> {
-    let app = get_test_app_with_cookie(pool).await?;
+cookie_test!(an_error_flash_message_is_set_on_failure, [app] {
     let body = serde_json::json!(
     {
         "username": "random-username",
@@ -30,20 +28,13 @@ async fn an_error_flash_message_is_set_on_failure(pool: Pool<Postgres>) -> Resul
         "{}",
         html_page
     );
-    Ok(())
-}
+});
 
-#[sqlx::test]
-async fn redirect_to_admin_dashboard_after_login(pool: Pool<Postgres>) -> Result<()> {
-    let app = get_test_app_with_cookie(pool)
-        .await
-        .context("fail to init app with cookie")?;
-    let body = serde_json::json!(
-    {
+cookie_test!(redirect_to_admin_dashboard_after_login, [app] {
+    let body = serde_json::json!({
         "username": app.test_user.username,
         "password": app.test_user.password,
-    }
-    );
+    });
     let resp = app.post_login(&body).await.context("fail to post login")?;
     assert_is_redirect_to(&resp, "/admin/dashboard");
     let html_page = app.get_admin_dashboard().await?.text().await?;
@@ -52,5 +43,4 @@ async fn redirect_to_admin_dashboard_after_login(pool: Pool<Postgres>) -> Result
         "the html page content is '{}'",
         html_page
     );
-    Ok(())
-}
+});

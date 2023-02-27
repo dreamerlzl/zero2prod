@@ -3,10 +3,17 @@ use poem_openapi::{
     payload::{Form, Html},
     Object, OpenApi, OpenApiService,
 };
+use secrecy::Secret;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::{context::StateContext, session_state::USER_ID_KEY, utils::see_other};
+use super::dashboard::get_username;
+use crate::{
+    auth::{validate_credentials, AuthError, Credentials},
+    context::StateContext,
+    session_state::{FLASH_KEY, USER_ID_KEY},
+    utils::{e500, see_other, see_other_with_cookie},
+};
 
 pub struct Api {
     context: StateContext,
@@ -17,9 +24,15 @@ impl Api {
     #[oai(path = "/password", method = "get")]
     pub async fn change_password_form(
         &self,
+        cookiejar: &poem::web::cookie::CookieJar,
         session: &Session,
     ) -> Result<Html<String>, poem::Error> {
-        let msg_html = "";
+        let mut msg_html = String::new();
+        if let Some(cookie) = cookiejar.get(FLASH_KEY) {
+            msg_html.push_str(&format!("<p><i>{}</i></p>", cookie.value_str()));
+        } else {
+            tracing::info!("no flash message found");
+        }
         if let Some(user_id) = session.get::<Uuid>(USER_ID_KEY) {
         } else {
             return Err(see_other("/login"));
@@ -72,7 +85,34 @@ impl Api {
         form: Form<ChangePasswordForm>,
         session: &Session,
     ) -> Result<(), poem::Error> {
+        if form.new_password != form.new_password_check {
+            return Err(see_other_with_cookie(
+                "/admin/password",
+                "You entered two different new passwords - the field values must match",
+            ));
+        }
         if let Some(user_id) = session.get::<Uuid>(USER_ID_KEY) {
+            let username = get_username(user_id, &self.context.db)
+                .await
+                .map_err(|e| e500(&e.to_string(), "fail to get username from id"))?
+                .ok_or(e500("no username found for id", ""))?;
+            let credentials = Credentials {
+                username,
+                password: Secret::new(form.current_password.clone()),
+            };
+            if let Err(e) = validate_credentials(&self.context.db, credentials).await {
+                match e {
+                    AuthError::InvalidCredentials(_) => {
+                        return Err(see_other_with_cookie(
+                            "/admin/password",
+                            "The current password is incorrect",
+                        ));
+                    }
+                    AuthError::UnexpectedError(_) => {
+                        return Err(e500(&e.to_string(), ""));
+                    }
+                }
+            }
         } else {
             return Err(see_other("/login"));
         }
