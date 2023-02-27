@@ -1,7 +1,7 @@
 use poem::session::Session;
 use poem_openapi::{
     payload::{Form, Html},
-    Object, OpenApi, OpenApiService,
+    Object, OpenApi,
 };
 use secrecy::Secret;
 use serde::Deserialize;
@@ -33,7 +33,7 @@ impl Api {
         } else {
             tracing::info!("no flash message found");
         }
-        if let Some(user_id) = session.get::<Uuid>(USER_ID_KEY) {
+        if let Some(_user_id) = session.get::<Uuid>(USER_ID_KEY) {
         } else {
             return Err(see_other("/login"));
         }
@@ -85,6 +85,12 @@ impl Api {
         form: Form<ChangePasswordForm>,
         session: &Session,
     ) -> Result<(), poem::Error> {
+        if form.new_password.len() > 128 || form.new_password.len() < 12 {
+            return Err(see_other_with_cookie(
+                "/admin/password",
+                "The password length must be between 12 to 128",
+            ));
+        }
         if form.new_password != form.new_password_check {
             return Err(see_other_with_cookie(
                 "/admin/password",

@@ -183,6 +183,13 @@ impl TestAppWithCookie {
             .await
     }
 
+    pub async fn post_logout(&self) -> Result<reqwest::Response, reqwest::Error> {
+        self.cookie_cli
+            .post(format!("{}/logout", &self.address))
+            .send()
+            .await
+    }
+
     pub async fn get_login_html(&self) -> Result<String, reqwest::Error> {
         let resp = self
             .cookie_cli
@@ -269,6 +276,6 @@ pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWit
 }
 
 pub fn assert_is_redirect_to(resp: &reqwest::Response, uri: &str) {
-    assert_eq!(resp.status().as_u16(), 303);
+    assert_eq!(resp.status().as_u16(), 303, "{}", uri);
     assert_eq!(resp.headers().get::<&str>("Location").unwrap(), uri);
 }

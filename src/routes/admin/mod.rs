@@ -1,4 +1,5 @@
 mod dashboard;
+pub mod logout;
 mod password;
 
 use poem::IntoEndpoint;

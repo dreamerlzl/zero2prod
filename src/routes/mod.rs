@@ -1,6 +1,6 @@
-use poem::{get, middleware::Tracing, Endpoint, EndpointExt, Route};
+use poem::{get, middleware::Tracing, post, session::ServerSession, Endpoint, EndpointExt, Route};
 
-use self::health::health_check;
+use self::{admin::logout::post_logout, health::health_check};
 use crate::{configuration::Configuration, context::StateContext};
 
 mod admin;
@@ -15,9 +15,10 @@ pub use error::ApiErrorResponse;
 pub async fn default_route(conf: Configuration, context: StateContext) -> Route {
     let mut route = Route::new()
         .at("/api/v1/health_check", get(health_check))
+        .at("/logout", post(post_logout))
         .at("/", get(home::home));
 
-    let server_url = format!("http://localhost:{}", conf.app.port);
+    let server_url = format!("http://127.0.0.1:{}", conf.app.port);
 
     // load subscriptions routing
     let (subscriptions_service, ui) =

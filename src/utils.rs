@@ -30,3 +30,12 @@ pub fn e500(e: &str, context: &str) -> poem::Error {
             .finish(),
     )
 }
+
+pub fn e400(prompt: String) -> poem::Error {
+    poem::Error::from_response(
+        poem::Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .content_type("text/html")
+            .body(prompt),
+    )
+}
