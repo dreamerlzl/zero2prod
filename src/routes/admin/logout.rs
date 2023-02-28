@@ -25,6 +25,6 @@ pub async fn post_logout(session: &Session) -> Result<impl IntoResponse, poem::E
             .finish();
         Ok(resp)
     } else {
-        Err(see_other("/login"))
+        Err(poem::Error::from_response(see_other("/login")))
     }
 }

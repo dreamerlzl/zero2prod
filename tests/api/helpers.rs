@@ -190,20 +190,22 @@ impl TestAppWithCookie {
             .await
     }
 
-    pub async fn get_login_html(&self) -> Result<String, reqwest::Error> {
+    pub async fn get_login_html(&self) -> String {
         let resp = self
             .cookie_cli
             .get(format!("{}/login", self.address))
             .send()
-            .await?;
-        resp.text().await
+            .await
+            .expect("fail to get login page");
+        resp.text().await.expect("fail to get resp in text")
     }
 
-    pub async fn get_admin_dashboard(&self) -> Result<reqwest::Response, reqwest::Error> {
+    pub async fn get_admin_dashboard(&self) -> reqwest::Response {
         self.cookie_cli
             .get(format!("{}/admin/dashboard", self.address))
             .send()
             .await
+            .expect("fail to get admin dashboard in test")
     }
 
     pub async fn get_change_password(&self) -> reqwest::Response {

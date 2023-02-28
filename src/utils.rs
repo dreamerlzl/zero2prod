@@ -2,24 +2,22 @@ use reqwest::{header::LOCATION, StatusCode};
 
 use crate::session_state::FLASH_KEY;
 
-pub fn see_other(uri: &str) -> poem::Error {
-    let resp = poem::Response::builder()
+pub fn see_other(uri: &str) -> poem::Response {
+    poem::Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(LOCATION, uri)
-        .finish();
-    poem::Error::from_response(resp)
+        .finish()
 }
 
-pub fn see_other_with_cookie(uri: &str, cookie: &str) -> poem::Error {
-    let resp = poem::Response::builder()
+pub fn see_other_with_cookie(uri: &str, cookie: &str) -> poem::Response {
+    poem::Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(LOCATION, uri)
         .header(
             "Set-Cookie",
             format!("{}={}; Max-Age=1; Secure; HttpOnly", FLASH_KEY, cookie),
         )
-        .finish();
-    poem::Error::from_response(resp)
+        .finish()
 }
 
 pub fn e500(e: &str, context: &str) -> poem::Error {

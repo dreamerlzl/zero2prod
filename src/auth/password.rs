@@ -3,6 +3,7 @@ use argon2::{Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::{engine::general_purpose, Engine};
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use secrecy::{ExposeSecret, Secret};
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::entities::user::{self, Entity as Users};
@@ -41,15 +42,21 @@ pub async fn validate_credentials(
             }
         }
     };
-    let current_span = tracing::Span::current();
-    tokio::task::spawn_blocking(move || {
-        current_span.in_scope(|| verify_password(password_hashed, credentials.password))
-    })
-    .await
-    .map_err(|e| anyhow!(format!("hash phc string verify error: {}", e)))??;
+    spawn_blocking_with_tracing(|| verify_password(password_hashed, credentials.password))
+        .await
+        .map_err(|e| anyhow!(format!("hash phc string verify error: {}", e)))??;
 
     id.ok_or_else(|| anyhow!("unknown username"))
         .map_err(AuthError::InvalidCredentials)
+}
+
+pub fn spawn_blocking_with_tracing<F, R>(f: F) -> JoinHandle<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let current_span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || current_span.in_scope(f))
 }
 
 #[tracing::instrument(name = "get user by provided credentials", skip(db, credentials))]
@@ -80,7 +87,7 @@ fn verify_password(phc: String, password: Secret<String>) -> Result<(), AuthErro
     Ok(())
 }
 
-pub fn get_hash(input: &str, salt: &str) -> Result<String, anyhow::Error> {
+pub fn get_hash(input: &str, salt: &str) -> Result<String, argon2::password_hash::Error> {
     let salt = general_purpose::STANDARD.encode(salt);
     // here password_hash is already PHC format
     let password_hash = Argon2::new(
@@ -88,8 +95,7 @@ pub fn get_hash(input: &str, salt: &str) -> Result<String, anyhow::Error> {
         argon2::Version::V0x13,
         Params::new(15000, 2, 1, None).unwrap(),
     )
-    .hash_password(input.as_bytes(), &salt)
-    .map_err(|e| anyhow!(format!("fail to hash with argon2: {}", e)))?
+    .hash_password(input.as_bytes(), &salt)?
     .to_string();
     Ok(password_hash)
 }

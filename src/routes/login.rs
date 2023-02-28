@@ -88,7 +88,7 @@ impl Api {
         session: &Session,
     ) -> Result<Response<()>, poem::Error> {
         let credentials = Credentials {
-            username: form.0.username,
+            username: form.0.username.clone(),
             password: Secret::new(form.0.password),
         };
         match validate_credentials(&self.context.db, credentials).await {
@@ -97,6 +97,11 @@ impl Api {
                 // to avoid session fixation attacks
                 session.renew();
                 session.set(USER_ID_KEY, user_id);
+                tracing::info!(
+                    username = form.0.username,
+                    user_id = user_id.to_string(),
+                    "login user uid is"
+                );
                 Ok(Response::new(())
                     .status(StatusCode::SEE_OTHER)
                     .header(LOCATION, "/admin/dashboard"))
@@ -106,7 +111,10 @@ impl Api {
                     AuthError::InvalidCredentials(_) => LoginError::AuthError(e.into()),
                     AuthError::UnexpectedError(_) => LoginError::UnexpectedError(e.into()),
                 };
-                Err(see_other_with_cookie("/login", &e.to_string()))
+                Err(poem::Error::from_response(see_other_with_cookie(
+                    "/login",
+                    &e.to_string(),
+                )))
             }
         }
     }
