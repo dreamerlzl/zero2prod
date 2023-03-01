@@ -1,16 +1,14 @@
-use poem::{session::Session, Error, Response, Result};
+use poem::{web::Data, Error, Result};
 use poem_openapi::{payload::Html, OpenApi};
-use reqwest::{header::LOCATION, StatusCode};
+use reqwest::StatusCode;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use tracing::{error, warn};
 use uuid::Uuid;
 
-use super::super::add_tracing;
+use super::super::add_session_uid_check;
 use crate::{
     context::StateContext,
     entities::user::{self, Entity as Users},
-    session_state::USER_ID_KEY,
-    // routes::ApiErrorResponse,
 };
 
 pub struct Api {
@@ -19,13 +17,16 @@ pub struct Api {
 
 #[OpenApi]
 impl Api {
-    #[oai(path = "/dashboard", method = "get", transform = "add_tracing")]
-    pub async fn admin_dashboard(&self, session: &Session) -> Result<Html<String>> {
-        if let Some(user_id) = session.get::<Uuid>(USER_ID_KEY) {
-            match get_username(user_id, &self.context.db).await {
-                Ok(Some(username)) => {
-                    return Ok(Html(format!(
-                        r#"<!DOCTYPE html>
+    #[oai(
+        path = "/dashboard",
+        method = "get",
+        transform = "add_session_uid_check"
+    )]
+    pub async fn admin_dashboard(&self, user_id: Data<&Uuid>) -> Result<Html<String>> {
+        let user_id = user_id.0;
+        match get_username(*user_id, &self.context.db).await {
+            Ok(Some(username)) => Ok(Html(format!(
+                r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta http-equiv="content-type" content="text/html; charset=utf-8">
@@ -44,28 +45,19 @@ impl Api {
     </ol>
 </body>
 </html>"#
-                    )))
-                }
-                Ok(None) => {
-                    warn!(
-                        user_id = user_id.to_string(),
-                        "username not found for user_id"
-                    );
-                    return Err(Error::from_status(StatusCode::UNAUTHORIZED));
-                }
-                Err(e) => {
-                    error!(error = e.to_string(), "fail to get username");
-                    return Err(Error::from_status(StatusCode::INTERNAL_SERVER_ERROR));
-                }
-            };
+            ))),
+            Ok(None) => {
+                warn!(
+                    user_id = user_id.to_string(),
+                    "username not found for user_id"
+                );
+                Err(Error::from_status(StatusCode::UNAUTHORIZED))
+            }
+            Err(e) => {
+                error!(error = e.to_string(), "fail to get username");
+                Err(Error::from_status(StatusCode::INTERNAL_SERVER_ERROR))
+            }
         }
-        Err(Error::from_response(
-            Response::builder()
-                .status(StatusCode::SEE_OTHER)
-                .header(LOCATION, "/login")
-                .content_type("text/html")
-                .finish(),
-        ))
     }
 }
 

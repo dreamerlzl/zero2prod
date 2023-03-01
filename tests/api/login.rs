@@ -37,10 +37,12 @@ cookie_test!(redirect_to_admin_dashboard_after_login, [app] {
     });
     let resp = app.post_login(&body).await.context("fail to post login")?;
     assert_is_redirect_to(&resp, "/admin/dashboard");
-    let html_page = app.get_admin_dashboard().await.text().await?;
+    let resp = app.get_admin_dashboard().await;
+    assert_eq!(resp.status().as_u16(), 200);
+    let html_page = resp.text().await?;
     assert!(
         html_page.contains(&format!("Welcome {}", app.test_user.username)),
-        "the html page content is '{}'",
+        "the html page content is ({})",
         html_page
     );
 });

@@ -1,7 +1,7 @@
 use poem::{get, middleware::Tracing, post, Endpoint, EndpointExt, Route};
 
 use self::{admin::logout::post_logout, health::health_check};
-use crate::{configuration::Configuration, context::StateContext};
+use crate::{auth::reject_anoynmous_user, configuration::Configuration, context::StateContext};
 
 mod admin;
 mod error;
@@ -15,7 +15,7 @@ pub use error::ApiErrorResponse;
 pub async fn default_route(conf: Configuration, context: StateContext) -> Route {
     let mut route = Route::new()
         .at("/api/v1/health_check", get(health_check))
-        .at("/logout", post(post_logout))
+        .at("/logout", post(post_logout).around(reject_anoynmous_user))
         .at("/", get(home::home));
 
     let server_url = format!("http://127.0.0.1:{}", conf.app.port);
@@ -46,4 +46,8 @@ pub async fn default_route(conf: Configuration, context: StateContext) -> Route 
 
 fn add_tracing(ep: impl Endpoint) -> impl Endpoint {
     ep.with(Tracing)
+}
+
+fn add_session_uid_check(ep: impl Endpoint + 'static) -> impl Endpoint {
+    ep.with(Tracing).around(reject_anoynmous_user)
 }

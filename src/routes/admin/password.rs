@@ -1,10 +1,10 @@
 use anyhow::anyhow;
-use poem::{session::Session, Result};
+use poem::{web::Data, Result};
 use poem_openapi::{
     payload::{Form, Html},
     Object, OpenApi,
 };
-use sea_orm::{entity::Set, ActiveModelTrait, DatabaseConnection, EntityTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use secrecy::Secret;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -13,9 +13,10 @@ use super::dashboard::get_username;
 use crate::{
     auth::{get_hash, validate_credentials, AuthError, Credentials},
     context::StateContext,
-    entities::user::{self, Entity as Users},
-    session_state::{FLASH_KEY, USER_ID_KEY},
-    utils::{e500, see_other, see_other_with_cookie, spawn_blocking_with_tracing},
+    entities::user,
+    routes::add_session_uid_check,
+    session_state::FLASH_KEY,
+    utils::{e400, e500, see_other_with_cookie, spawn_blocking_with_tracing},
 };
 
 pub struct Api {
@@ -24,21 +25,18 @@ pub struct Api {
 
 #[OpenApi]
 impl Api {
-    #[oai(path = "/password", method = "get")]
+    #[oai(
+        path = "/password",
+        method = "get",
+        transform = "add_session_uid_check"
+    )]
     pub async fn change_password_form(
         &self,
         cookiejar: &poem::web::cookie::CookieJar,
-        session: &Session,
     ) -> Result<Html<String>> {
         let mut msg_html = String::new();
         if let Some(cookie) = cookiejar.get(FLASH_KEY) {
             msg_html.push_str(&format!("<p><i>{}</i></p>", cookie.value_str()));
-        } else {
-            tracing::info!("no flash message found");
-        }
-        if let Some(_user_id) = session.get::<Uuid>(USER_ID_KEY) {
-        } else {
-            return Err(see_other("/login"));
         }
         Ok(Html(format!(
             r#"<!DOCTYPE html>
@@ -82,11 +80,15 @@ impl Api {
         )))
     }
 
-    #[oai(path = "/password", method = "post")]
+    #[oai(
+        path = "/password",
+        method = "post",
+        transform = "add_session_uid_check"
+    )]
     pub async fn change_password(
         &self,
         form: Form<ChangePasswordForm>,
-        session: &Session,
+        user_id: Data<&Uuid>,
     ) -> Result<()> {
         if form.new_password.len() > 128 || form.new_password.len() < 12 {
             return Err(see_other_with_cookie(
@@ -100,39 +102,33 @@ impl Api {
                 "You entered two different new passwords - the field values must match",
             ));
         }
-        if let Some(user_id) = session.get::<Uuid>(USER_ID_KEY) {
-            let username = get_username(user_id, &self.context.db)
-                .await
-                .map_err(|e| e500(&e.to_string(), "fail to get username from id"))?
-                .ok_or(e500("no username found for id", ""))?;
-            let credentials = Credentials {
-                username,
-                password: Secret::new(form.current_password.clone()),
-            };
-            match validate_credentials(&self.context.db, credentials).await {
-                Err(e) => match e {
-                    AuthError::InvalidCredentials(_) => {
-                        return Err(see_other_with_cookie(
-                            "/admin/password",
-                            "The current password is incorrect",
-                        ));
-                    }
-                    AuthError::UnexpectedError(_) => {
-                        return Err(e500(&e.to_string(), ""));
-                    }
-                },
-                Ok(uid) => {
-                    change_password(uid, form.new_password.clone(), &self.context.db)
-                        .await
-                        .map_err(|e| e500(&e.to_string(), "fail to change user password"))?;
-                    return Err(see_other_with_cookie(
-                        "/admin/password",
-                        "Your password has been changed.",
-                    ));
-                }
-            };
+        let user_id = user_id.0;
+        let username = get_username(*user_id, &self.context.db)
+            .await
+            .map_err(|e| e500(&e.to_string(), "fail to get username from id"))?
+            .ok_or(e400("no username found for id".to_string()))?;
+        let credentials = Credentials {
+            username,
+            password: Secret::new(form.current_password.clone()),
+        };
+        match validate_credentials(&self.context.db, credentials).await {
+            Err(e) => match e {
+                AuthError::InvalidCredentials(_) => Err(see_other_with_cookie(
+                    "/admin/password",
+                    "The current password is incorrect",
+                )),
+                AuthError::UnexpectedError(_) => Err(e500(&e.to_string(), "")),
+            },
+            Ok(uid) => {
+                change_password(uid, form.new_password.clone(), &self.context.db)
+                    .await
+                    .map_err(|e| e500(&e.to_string(), "fail to change user password"))?;
+                Err(see_other_with_cookie(
+                    "/admin/password",
+                    "Your password has been changed.",
+                ))
+            }
         }
-        Err(see_other("/login"))
     }
 }
 
@@ -154,17 +150,13 @@ pub async fn change_password(
                 "fail to join spawning tokio task for computing hash {e}"
             ))
         })??;
-    if let Some(user) = Users::find_by_id(uid).one(db).await? {
-        let mut user: user::ActiveModel = user.into();
-        user.password_hashed = Set(password_hashed);
-        user.update(db).await?;
-    } else {
-        // TODO: add transaction for changing password; avoid user deletion at the same time
-        // this should not happen
-        let uid = uid.to_string();
-        tracing::error!(user_id = uid, "user not found for user id");
-        return Err(anyhow!("fail to find user for uid"));
-    }
+
+    let active_user = user::ActiveModel {
+        id: ActiveValue::Set(uid),
+        password_hashed: ActiveValue::Set(password_hashed),
+        user_name: ActiveValue::NotSet,
+    };
+    active_user.update(db).await?;
     Ok(())
 }
 

@@ -43,8 +43,6 @@ impl Api {
         let mut error = String::new();
         if let Some(cookie) = cookiejar.get(FLASH_KEY) {
             error = format!("<p><i>{}</i></p>", cookie.value_str().to_owned());
-        } else {
-            tracing::error!(name = FLASH_KEY, "no cookie entry with name");
         }
 
         Html(format!(
