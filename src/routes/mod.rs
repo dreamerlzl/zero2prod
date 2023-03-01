@@ -1,4 +1,4 @@
-use poem::{get, middleware::Tracing, post, session::ServerSession, Endpoint, EndpointExt, Route};
+use poem::{get, middleware::Tracing, post, Endpoint, EndpointExt, Route};
 
 use self::{admin::logout::post_logout, health::health_check};
 use crate::{configuration::Configuration, context::StateContext};

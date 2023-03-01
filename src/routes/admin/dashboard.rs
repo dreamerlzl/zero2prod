@@ -1,5 +1,5 @@
-use poem::session::Session;
-use poem_openapi::{payload::Html, OpenApi, OpenApiService};
+use poem::{session::Session, Error, Response, Result};
+use poem_openapi::{payload::Html, OpenApi};
 use reqwest::{header::LOCATION, StatusCode};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use tracing::{error, warn};
@@ -20,7 +20,7 @@ pub struct Api {
 #[OpenApi]
 impl Api {
     #[oai(path = "/dashboard", method = "get", transform = "add_tracing")]
-    pub async fn admin_dashboard(&self, session: &Session) -> Result<Html<String>, poem::Error> {
+    pub async fn admin_dashboard(&self, session: &Session) -> Result<Html<String>> {
         if let Some(user_id) = session.get::<Uuid>(USER_ID_KEY) {
             match get_username(user_id, &self.context.db).await {
                 Ok(Some(username)) => {
@@ -51,24 +51,16 @@ impl Api {
                         user_id = user_id.to_string(),
                         "username not found for user_id"
                     );
-                    return Err(poem::Error::from_response(
-                        poem::Response::builder()
-                            .status(StatusCode::UNAUTHORIZED)
-                            .finish(),
-                    ));
+                    return Err(Error::from_status(StatusCode::UNAUTHORIZED));
                 }
                 Err(e) => {
                     error!(error = e.to_string(), "fail to get username");
-                    return Err(poem::Error::from_response(
-                        poem::Response::builder()
-                            .status(StatusCode::INTERNAL_SERVER_ERROR)
-                            .finish(),
-                    ));
+                    return Err(Error::from_status(StatusCode::INTERNAL_SERVER_ERROR));
                 }
             };
         }
-        Err(poem::Error::from_response(
-            poem::Response::builder()
+        Err(Error::from_response(
+            Response::builder()
                 .status(StatusCode::SEE_OTHER)
                 .header(LOCATION, "/login")
                 .content_type("text/html")

@@ -3,10 +3,12 @@ use argon2::{Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::{engine::general_purpose, Engine};
 use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use secrecy::{ExposeSecret, Secret};
-use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-use crate::entities::user::{self, Entity as Users};
+use crate::{
+    entities::user::{self, Entity as Users},
+    utils::spawn_blocking_with_tracing,
+};
 
 #[derive(thiserror::Error, Debug)]
 pub enum AuthError {
@@ -48,15 +50,6 @@ pub async fn validate_credentials(
 
     id.ok_or_else(|| anyhow!("unknown username"))
         .map_err(AuthError::InvalidCredentials)
-}
-
-pub fn spawn_blocking_with_tracing<F, R>(f: F) -> JoinHandle<R>
-where
-    F: FnOnce() -> R + Send + 'static,
-    R: Send + 'static,
-{
-    let current_span = tracing::Span::current();
-    tokio::task::spawn_blocking(move || current_span.in_scope(f))
 }
 
 #[tracing::instrument(name = "get user by provided credentials", skip(db, credentials))]

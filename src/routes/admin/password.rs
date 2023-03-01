@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use poem::session::Session;
+use poem::{session::Session, Result};
 use poem_openapi::{
     payload::{Form, Html},
     Object, OpenApi,
@@ -11,14 +11,11 @@ use uuid::Uuid;
 
 use super::dashboard::get_username;
 use crate::{
-    auth::{
-        get_hash, password::spawn_blocking_with_tracing, validate_credentials, AuthError,
-        Credentials,
-    },
+    auth::{get_hash, validate_credentials, AuthError, Credentials},
     context::StateContext,
     entities::user::{self, Entity as Users},
     session_state::{FLASH_KEY, USER_ID_KEY},
-    utils::{e500, see_other, see_other_with_cookie},
+    utils::{e500, see_other, see_other_with_cookie, spawn_blocking_with_tracing},
 };
 
 pub struct Api {
@@ -32,7 +29,7 @@ impl Api {
         &self,
         cookiejar: &poem::web::cookie::CookieJar,
         session: &Session,
-    ) -> Result<Html<String>, poem::Error> {
+    ) -> Result<Html<String>> {
         let mut msg_html = String::new();
         if let Some(cookie) = cookiejar.get(FLASH_KEY) {
             msg_html.push_str(&format!("<p><i>{}</i></p>", cookie.value_str()));
@@ -41,7 +38,7 @@ impl Api {
         }
         if let Some(_user_id) = session.get::<Uuid>(USER_ID_KEY) {
         } else {
-            return Err(poem::Error::from_response(see_other("/login")));
+            return Err(see_other("/login"));
         }
         Ok(Html(format!(
             r#"<!DOCTYPE html>
@@ -90,18 +87,18 @@ impl Api {
         &self,
         form: Form<ChangePasswordForm>,
         session: &Session,
-    ) -> Result<(), poem::Error> {
+    ) -> Result<()> {
         if form.new_password.len() > 128 || form.new_password.len() < 12 {
-            return Err(poem::Error::from_response(see_other_with_cookie(
+            return Err(see_other_with_cookie(
                 "/admin/password",
                 "The password length must be between 12 to 128",
-            )));
+            ));
         }
         if form.new_password != form.new_password_check {
-            return Err(poem::Error::from_response(see_other_with_cookie(
+            return Err(see_other_with_cookie(
                 "/admin/password",
                 "You entered two different new passwords - the field values must match",
-            )));
+            ));
         }
         if let Some(user_id) = session.get::<Uuid>(USER_ID_KEY) {
             let username = get_username(user_id, &self.context.db)
@@ -115,10 +112,10 @@ impl Api {
             match validate_credentials(&self.context.db, credentials).await {
                 Err(e) => match e {
                     AuthError::InvalidCredentials(_) => {
-                        return Err(poem::Error::from_response(see_other_with_cookie(
+                        return Err(see_other_with_cookie(
                             "/admin/password",
                             "The current password is incorrect",
-                        )));
+                        ));
                     }
                     AuthError::UnexpectedError(_) => {
                         return Err(e500(&e.to_string(), ""));
@@ -128,14 +125,14 @@ impl Api {
                     change_password(uid, form.new_password.clone(), &self.context.db)
                         .await
                         .map_err(|e| e500(&e.to_string(), "fail to change user password"))?;
-                    return Err(poem::Error::from_response(see_other_with_cookie(
+                    return Err(see_other_with_cookie(
                         "/admin/password",
                         "Your password has been changed.",
-                    )));
+                    ));
                 }
             };
         }
-        Err(poem::Error::from_response(see_other("/login")))
+        Err(see_other("/login"))
     }
 }
 

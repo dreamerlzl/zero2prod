@@ -111,10 +111,7 @@ impl Api {
                     AuthError::InvalidCredentials(_) => LoginError::AuthError(e.into()),
                     AuthError::UnexpectedError(_) => LoginError::UnexpectedError(e.into()),
                 };
-                Err(poem::Error::from_response(see_other_with_cookie(
-                    "/login",
-                    &e.to_string(),
-                )))
+                Err(see_other_with_cookie("/login", &e.to_string()))
             }
         }
     }
