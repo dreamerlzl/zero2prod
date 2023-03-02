@@ -88,8 +88,9 @@ async fn subscribe_returns_a_confirmation_email(pool: Pool<Postgres>) -> Result<
     let email_request = test_app.email_server.received_requests().await.unwrap();
 
     let body: serde_json::Value = serde_json::from_slice(&email_request[0].body).unwrap();
-    let html_link = get_first_link(body["HtmlBody"].as_str().unwrap());
-    let text_link = get_first_link(body["TextBody"].as_str().unwrap());
+    // the port here doesn't matter
+    let html_link = get_first_link(body["HtmlBody"].as_str().unwrap(), 7070);
+    let text_link = get_first_link(body["TextBody"].as_str().unwrap(), 7070);
     assert_eq!(html_link, text_link);
 
     Ok(())

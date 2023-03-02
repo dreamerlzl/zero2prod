@@ -11,6 +11,20 @@ macro_rules! cookie_test {
 }
 
 #[macro_export]
+macro_rules! login_test {
+    ($name:ident, [$app:ident] $fun:block) => {
+        $crate::cookie_test!($name, [$app] {
+            let body = serde_json::json!({
+                "username": $app.test_user.username,
+                "password": $app.test_user.password,
+            });
+            $app.post_login(&body).await?;
+            $fun
+        });
+    };
+}
+
+#[macro_export]
 macro_rules! normal_test {
     ($name:ident, [$x:ident] $fun:block) => {
         #[sqlx::test]

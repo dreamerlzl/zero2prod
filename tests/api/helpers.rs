@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose, Engine};
 use fake::{faker::internet::en::SafeEmail, Fake};
 use linkify::LinkFinder;
 use migration::{Migrator, MigratorTrait};
@@ -42,23 +41,19 @@ pub struct ConfirmationLinks {
     pub plain_text: reqwest::Url,
 }
 
-pub fn get_confirmation_link(email_request: &wiremock::Request) -> ConfirmationLinks {
-    let body: serde_json::Value = serde_json::from_slice(&email_request.body).unwrap();
-    let html = get_first_link(body["HtmlBody"].as_str().unwrap());
-    let html = reqwest::Url::parse(&html).unwrap();
-    let text = get_first_link(body["TextBody"].as_str().unwrap());
-    let plain_text = reqwest::Url::parse(&text).unwrap();
-    ConfirmationLinks { html, plain_text }
-}
-
-pub fn get_first_link(text: &str) -> String {
+pub fn get_first_link(text: &str, port: u16) -> String {
     let finder = LinkFinder::new();
     let links: Vec<_> = finder
         .links(text)
         .filter(|l| *l.kind() == linkify::LinkKind::Url)
         .collect();
     assert_eq!(links.len(), 1);
-    links[0].as_str().to_owned()
+    let raw_link = links[0].as_str().to_owned();
+    let mut confirmation_link = reqwest::Url::parse(&raw_link).unwrap();
+    confirmation_link
+        .set_port(Some(port))
+        .expect("fail to set port");
+    confirmation_link.to_string()
 }
 
 static TRACING: Lazy<()> = Lazy::new(|| {
@@ -104,16 +99,6 @@ pub async fn get_test_app(pool: Pool<Postgres>) -> Result<TestApp> {
     })
 }
 
-impl TestApp {
-    pub async fn post_newsletters_without_auth(&self, body: serde_json::Value) -> TestResponse {
-        self.cli.post("/newsletters").body_json(&body).send().await
-    }
-
-    pub async fn post_newsletters(&self, body: serde_json::Value) -> TestResponse {
-        post_newsletters(&self.cli, &self.test_user, body).await
-    }
-}
-
 #[derive(Clone)]
 pub struct TestUser {
     pub username: String,
@@ -144,31 +129,13 @@ pub async fn register_test_user(
     .await
 }
 
-pub async fn post_newsletters(
-    cli: &TestClient<ClientType>,
-    test_user: &TestUser,
-    body: serde_json::Value,
-) -> TestResponse {
-    cli.post("/newsletters")
-        .body_json(&body)
-        .header(
-            "Authorization",
-            format!(
-                "Basic {}",
-                general_purpose::STANDARD
-                    .encode(format!("{}:{}", test_user.username, test_user.password))
-            ),
-        )
-        .send()
-        .await
-}
-
 pub struct TestAppWithCookie {
-    cookie_cli: reqwest::Client,
+    pub cookie_cli: reqwest::Client,
     db: DatabaseConnection,
     pub test_user: TestUser,
     address: String,
-    email_server: MockServer,
+    pub email_server: MockServer,
+    port: u16,
 }
 
 impl TestAppWithCookie {
@@ -231,6 +198,51 @@ impl TestAppWithCookie {
     pub async fn get_change_password_html(&self) -> String {
         self.get_change_password().await.text().await.unwrap()
     }
+
+    pub async fn post_newsletters<B>(&self, body: B) -> reqwest::Response
+    where
+        B: serde::Serialize,
+    {
+        self.cookie_cli
+            .post(format!("{}/admin/newsletters", &self.address))
+            .form(&body)
+            .send()
+            .await
+            .expect("fail to send resp to post newsletters")
+    }
+
+    pub async fn post_subscription<T: 'static + Into<reqwest::Body>>(
+        &self,
+        data: T,
+    ) -> reqwest::Response {
+        self.cookie_cli
+            .post(format!("{}/subscriptions", &self.address))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(data)
+            .send()
+            .await
+            .expect("fail to subscribe")
+    }
+
+    pub async fn confirm_subscription(&self, url: &str) -> Result<()> {
+        let resp = self
+            .cookie_cli
+            .get(url)
+            .send()
+            .await
+            .context(format!("fail to confirm subscriptions link: {}", url))?;
+        assert_eq!(resp.status().as_u16(), reqwest::StatusCode::OK, "{}", url);
+        Ok(())
+    }
+
+    pub fn get_confirmation_link(&self, email_request: &wiremock::Request) -> ConfirmationLinks {
+        let body: serde_json::Value = serde_json::from_slice(&email_request.body).unwrap();
+        let html = get_first_link(body["HtmlBody"].as_str().unwrap(), self.port);
+        let html = reqwest::Url::parse(&html).unwrap();
+        let text = get_first_link(body["TextBody"].as_str().unwrap(), self.port);
+        let plain_text = reqwest::Url::parse(&text).unwrap();
+        ConfirmationLinks { html, plain_text }
+    }
 }
 
 pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWithCookie> {
@@ -274,6 +286,7 @@ pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWit
         db,
         email_server,
         test_user,
+        port: app_port,
     })
 }
 

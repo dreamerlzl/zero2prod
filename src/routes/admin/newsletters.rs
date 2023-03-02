@@ -1,13 +1,11 @@
-use anyhow::{anyhow, Context};
-use base64::{engine::general_purpose, Engine};
-use poem::{http::HeaderMap, web::Json, Endpoint};
-use poem_openapi::{Object, OpenApi, OpenApiService};
+use anyhow::anyhow;
+use poem::http::HeaderMap;
+use poem_openapi::{payload::Form, Object, OpenApi};
 use sea_orm::{ColumnTrait, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect};
-use secrecy::Secret;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use super::{add_tracing, subscriptions::ConfirmStatus};
+use super::super::{add_session_uid_check, subscriptions::ConfirmStatus};
 use crate::{
     auth::{validate_credentials, AuthError, Credentials},
     context::StateContext,
@@ -20,30 +18,22 @@ pub struct Api {
     context: StateContext,
 }
 
-pub fn get_api_service(
-    context: StateContext,
-    server_url: &str,
-) -> (OpenApiService<Api, ()>, impl Endpoint) {
-    let api_service =
-        OpenApiService::new(Api::new(context), "newsletters", "0.1").server(server_url);
-    let ui = api_service.swagger_ui();
-    (api_service, ui)
-}
-
 #[OpenApi]
 impl Api {
     #[tracing::instrument(name = "Publish a newsletter issue", skip(self), fields(username=tracing::field::Empty, user_id=tracing::field::Empty))]
-    #[oai(path = "/", method = "post", transform = "add_tracing")]
+    #[oai(
+        path = "/newsletters",
+        method = "post",
+        transform = "add_session_uid_check"
+    )]
     async fn publish_newsletter(
         &self,
         headers: &HeaderMap,
-        body: Json<NewsletterJsonPost>,
+        body: Form<NewsletterForm>,
     ) -> Result<(), ApiErrorResponse> {
         // list all confirmed subscribers
         // ideally, we should let some workers to handle all the confirmed subscribers
         // asynchrounously
-        let credentials = basic_authentication(headers).map_err(PublishError::AuthError)?;
-        self.validate_credentials(credentials).await?;
         let subscribers = self.get_confirmed_subscribers().await?;
         for subscriber in subscribers {
             match subscriber {
@@ -53,8 +43,8 @@ impl Api {
                         .send_email(
                             &subscriber.email,
                             &body.title,
-                            &body.content.html,
-                            &body.content.text,
+                            &body.html_content,
+                            &body.text_content,
                         )
                         .await?;
                 }
@@ -75,19 +65,14 @@ impl Api {
 //   }
 // }
 #[derive(Deserialize, Debug, Object)]
-struct NewsletterJsonPost {
+struct NewsletterForm {
     title: String,
-    content: Content,
-}
-
-#[derive(Debug, Deserialize, Object)]
-struct Content {
-    html: String,
-    text: String,
+    text_content: String,
+    html_content: String,
 }
 
 impl Api {
-    fn new(context: StateContext) -> Self {
+    pub fn new(context: StateContext) -> Self {
         Api { context }
     }
 
@@ -141,31 +126,4 @@ pub enum PublishError {
 
     #[error("unexpected error")]
     UnexpectedError(#[from] anyhow::Error),
-}
-
-fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Error> {
-    let header_value = headers
-        .get("Authorization")
-        .context("the 'Authorization' header is missing")?
-        .to_str()
-        .context("the 'Authorization' header is not a valid utf8 str")?;
-
-    let base64encoded_segment = header_value
-        .strip_prefix("Basic ")
-        .context("the authorization scheme is not 'Basic'. ")?;
-    let decoded_bytes = general_purpose::STANDARD.decode(base64encoded_segment)?;
-    let decoded_credentials =
-        String::from_utf8(decoded_bytes).context("the decoded credentials is not valid utf8")?;
-
-    let mut credentials = decoded_credentials.splitn(2, ':');
-    let username = credentials
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("a username must be provided in 'Basic' auth"))?
-        .to_owned();
-    let password = credentials
-        .next()
-        .ok_or_else(|| anyhow!("a password must be provided in 'Basic' auth"))?
-        .to_owned();
-    let password = Secret::new(password);
-    Ok(Credentials { username, password })
 }

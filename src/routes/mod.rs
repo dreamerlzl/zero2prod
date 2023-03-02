@@ -8,7 +8,6 @@ mod error;
 pub mod health;
 mod home;
 mod login;
-pub mod newsletters;
 pub mod subscriptions;
 pub use error::ApiErrorResponse;
 
@@ -26,13 +25,6 @@ pub async fn default_route(conf: Configuration, context: StateContext) -> Route 
     route = route
         .nest("/subscriptions", subscriptions_service)
         .nest("/subscriptions/docs", ui);
-
-    // load newsletters routing
-    let (newsletters_service, ui) =
-        newsletters::get_api_service(context.clone(), &format!("{server_url}/newsletters"));
-    route = route
-        .nest("/newsletters", newsletters_service)
-        .nest("/newsletters/docs", ui);
 
     let (login_service, ui) =
         login::get_api_service(context.clone(), &format!("{server_url}/login"));

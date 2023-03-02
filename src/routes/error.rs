@@ -4,7 +4,7 @@ use poem_openapi::{payload::PlainText, ApiResponse};
 use thiserror::Error;
 use tracing::error;
 
-use super::newsletters::PublishError;
+use super::admin::newsletters::PublishError;
 
 // see https://docs.rs/poem-openapi/latest/poem_openapi/derive.ApiResponse.html and https://github.com/poem-web/poem/issues/475
 #[derive(ApiResponse, Debug, Error)]
