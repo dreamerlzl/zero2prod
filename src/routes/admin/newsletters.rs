@@ -1,6 +1,9 @@
 use anyhow::anyhow;
-use poem::http::HeaderMap;
-use poem_openapi::{payload::Form, Object, OpenApi};
+use poem::{http::HeaderMap, web::cookie::CookieJar};
+use poem_openapi::{
+    payload::{Form, Html, Response},
+    Object, OpenApi,
+};
 use sea_orm::{ColumnTrait, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -12,6 +15,8 @@ use crate::{
     domain::Email,
     entities::subscriptions::{self, Entity as Subscriptions},
     routes::ApiErrorResponse,
+    session_state::FLASH_KEY,
+    utils::see_other_with_cookie2,
 };
 
 pub struct Api {
@@ -20,6 +25,20 @@ pub struct Api {
 
 #[OpenApi]
 impl Api {
+    #[tracing::instrument(name = "Get the newsletters submit form", skip(self, cookiejar))]
+    #[oai(
+        path = "/newsletters",
+        method = "get",
+        transform = "add_session_uid_check"
+    )]
+    async fn get_newsletter_submit_form(&self, cookiejar: &CookieJar) -> Html<String> {
+        let mut error = String::new();
+        if let Some(cookie) = cookiejar.get(FLASH_KEY) {
+            error = format!("<p><i>{}</i></p>", cookie.value_str().to_owned());
+        }
+        Html(format!(include_str!("newsletter.html"), error))
+    }
+
     #[tracing::instrument(name = "Publish a newsletter issue", skip(self), fields(username=tracing::field::Empty, user_id=tracing::field::Empty))]
     #[oai(
         path = "/newsletters",
@@ -30,7 +49,7 @@ impl Api {
         &self,
         headers: &HeaderMap,
         body: Form<NewsletterForm>,
-    ) -> Result<(), ApiErrorResponse> {
+    ) -> Result<Response<()>, ApiErrorResponse> {
         // list all confirmed subscribers
         // ideally, we should let some workers to handle all the confirmed subscribers
         // asynchrounously
@@ -53,7 +72,10 @@ impl Api {
                 }
             }
         }
-        Ok(())
+        Ok(see_other_with_cookie2(
+            "/admin/newsletters",
+            "The newsletter issue has been accepted - emails will go out shortly.",
+        ))
     }
 }
 

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <title>Submit a newsletter</title>
+  </head>
+  <body>
+    {}
+    <form action="/admin/newsletters" method="post">
+      <label>Title
+        <input type="text" placeholder="title" name="title">
+      </label>
+
+      <p><label for="html_content">html content:</label></p>
+      <textarea id="html_content" name="html_content" rows="4" cols="50">
+      </textarea>
+
+      <p><label for="text_content">text content:</label></p>
+      <textarea id="text_content" name="text_content" rows="4" cols="50">
+      </textarea>
+
+      <br/><br/>
+      <button type="submit">Submit</button>
+    </form>
+  </body>
+</html>

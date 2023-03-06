@@ -26,6 +26,16 @@ pub fn see_other_with_cookie(uri: &str, cookie: &str) -> Error {
     )
 }
 
+pub fn see_other_with_cookie2(uri: &str, cookie: &str) -> poem_openapi::payload::Response<()> {
+    poem_openapi::payload::Response::new(())
+        .status(StatusCode::SEE_OTHER)
+        .header(LOCATION, uri)
+        .header(
+            "Set-Cookie",
+            format!("{}={}; Max-Age=1; Secure; HttpOnly", FLASH_KEY, cookie),
+        )
+}
+
 pub fn e500(e: &str, context: &str) -> poem::Error {
     tracing::error!(error = e, context);
     poem::Error::from_response(

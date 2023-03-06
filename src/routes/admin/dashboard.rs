@@ -37,6 +37,7 @@ impl Api {
     <p>Available actions:</p>
     <ol>
         <li><a href="/admin/password">Change password</a></li>
+        <li><a href="/admin/newsletters">Send a newsletter</li>
         <li>
           <form name="logoutForm" action="/logout" method="post">
             <input type="submit" value="Logout">
