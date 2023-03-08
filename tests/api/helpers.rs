@@ -211,6 +211,22 @@ impl TestAppWithCookie {
             .expect("fail to send resp to post newsletters")
     }
 
+    pub async fn get_publish_newsletter_html(&self) -> String {
+        self.get_publish_newsletter()
+            .await
+            .text()
+            .await
+            .expect("fail to get html from newsletters")
+    }
+
+    pub async fn get_publish_newsletter(&self) -> reqwest::Response {
+        self.cookie_cli
+            .get(format!("{}/admin/newsletters", &self.address))
+            .send()
+            .await
+            .expect("fail to get")
+    }
+
     pub async fn post_subscription<T: 'static + Into<reqwest::Body>>(
         &self,
         data: T,

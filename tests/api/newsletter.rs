@@ -7,6 +7,32 @@ use wiremock::{
 use super::helpers::{assert_is_redirect_to, ConfirmationLinks, TestAppWithCookie};
 use crate::{cookie_test, login_test};
 
+login_test!(newsletter_creation_is_idempotent, [app]{
+    create_unconfirmed_subscriber(&app).await;
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&app.email_server)
+        .await;
+    let request = serde_json::json!({
+        "title": "title",
+        "text_content": "plain text",
+        "html_content": "<p>html body</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+    });
+    let resp = app.post_newsletters(request.clone()).await;
+    assert_is_redirect_to(&resp, "/admin/newsletters");
+
+    // part2
+    let html_page = app.get_publish_newsletter_html().await;
+    assert!(html_page.contains("The newsletter issue has been published!"));
+    let resp = app.post_newsletters(request).await;
+    assert_is_redirect_to(&resp, "/admin/newsletters");
+    let html_page = app.get_publish_newsletter_html().await;
+    assert!(html_page.contains("The newsletter issue has been published!"));
+});
+
 login_test!(newsletters_returns_400_given_invalid_data, [app] {
     let test_cases = vec![
         // missing content
