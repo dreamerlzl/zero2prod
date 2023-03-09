@@ -1,5 +1,8 @@
 use anyhow::anyhow;
-use poem::{http::HeaderMap, web::cookie::CookieJar};
+use poem::{
+    http::HeaderMap,
+    web::{cookie::CookieJar, Data},
+};
 use poem_openapi::{
     payload::{Form, Html, Response},
     Object, OpenApi,
@@ -12,7 +15,7 @@ use super::super::{add_session_uid_check, subscriptions::ConfirmStatus};
 use crate::{
     auth::{validate_credentials, AuthError, Credentials},
     context::StateContext,
-    domain::Email,
+    domain::{get_saved_response, Email, IdempotencyKey},
     entities::subscriptions::{self, Entity as Subscriptions},
     routes::ApiErrorResponse,
     session_state::FLASH_KEY,
@@ -36,7 +39,11 @@ impl Api {
         if let Some(cookie) = cookiejar.get(FLASH_KEY) {
             error = format!("<p><i>{}</i></p>", cookie.value_str().to_owned());
         }
-        Html(format!(include_str!("newsletter.html"), error))
+        let idempotency_key = Uuid::new_v4().to_string();
+        Html(format!(
+            include_str!("newsletter.html"),
+            error, idempotency_key
+        ))
     }
 
     #[tracing::instrument(name = "Publish a newsletter issue", skip(self), fields(username=tracing::field::Empty, user_id=tracing::field::Empty))]
@@ -48,23 +55,29 @@ impl Api {
     async fn publish_newsletter(
         &self,
         headers: &HeaderMap,
-        body: Form<NewsletterForm>,
+        form: Form<NewsletterForm>,
+        user_id: Data<&Uuid>,
     ) -> Result<Response<()>, ApiErrorResponse> {
         // list all confirmed subscribers
         // ideally, we should let some workers to handle all the confirmed subscribers
         // asynchrounously
         let subscribers = self.get_confirmed_subscribers().await?;
+        let NewsletterForm {
+            title,
+            text_content,
+            html_content,
+            idempotency_key,
+        } = form.0;
+        let idempotency_key: IdempotencyKey = idempotency_key
+            .try_into()
+            .map_err(|_| PublishError::BadIdemPotencyKey)?;
+        let saved_resp = get_saved_response(&self.context.db, &idempotency_key, user_id.0).await;
         for subscriber in subscribers {
             match subscriber {
                 Ok(subscriber) => {
                     self.context
                         .email_client
-                        .send_email(
-                            &subscriber.email,
-                            &body.title,
-                            &body.html_content,
-                            &body.text_content,
-                        )
+                        .send_email(&subscriber.email, &title, &html_content, &text_content)
                         .await?;
                 }
                 Err(error) => {
@@ -74,7 +87,7 @@ impl Api {
         }
         Ok(see_other_with_cookie2(
             "/admin/newsletters",
-            "The newsletter issue has been accepted - emails will go out shortly.",
+            "The newsletter issue has been published!",
         ))
     }
 }
@@ -91,6 +104,7 @@ struct NewsletterForm {
     title: String,
     text_content: String,
     html_content: String,
+    idempotency_key: String,
 }
 
 impl Api {
@@ -143,6 +157,9 @@ struct ConfirmedSubscriber {
 
 #[derive(thiserror::Error, Debug)]
 pub enum PublishError {
+    #[error("invalid idempotency key")]
+    BadIdemPotencyKey,
+
     #[error("Authentication failed.")]
     AuthError(#[source] anyhow::Error),
 

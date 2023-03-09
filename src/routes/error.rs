@@ -33,6 +33,9 @@ impl Display for ApiErrorResponse {
 impl From<PublishError> for ApiErrorResponse {
     fn from(value: PublishError) -> Self {
         match value {
+            PublishError::BadIdemPotencyKey => {
+                ApiErrorResponse::BadRequest(PlainText("Invalid idempotency key".to_owned()))
+            }
             PublishError::AuthError(e) => {
                 error!(error = e.to_string(), "auth error");
                 ApiErrorResponse::AuthError(Some(r#"Basic realm="publish""#.to_owned()))

@@ -29,11 +29,11 @@ poem-openapi = { version = "2.0.22", features = ["swagger-ui"] }
 rand = "0.8.5"
 redis = { version = "0.22.3", features = ["aio", "tokio-comp", "connection-manager"] }
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "cookies"]}
-sea-orm = { version = "0.11.0", features = ["sqlx-postgres", "macros", "runtime-tokio-rustls"] }
+sea-orm = { version = "0.11.0", features = ["sqlx-postgres", "macros", "runtime-tokio-rustls", "sea-orm-internal"] }
 sea-orm-migration = "0.11.0"
 secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.144", features = ["derive"] }
-sqlx = { version = "0.6", default-features = false, features = ["postgres", "migrate"] }
+sqlx = { version = "0.6", default-features = false, features = ["postgres", "migrate", "macros"] }
 thiserror = "1.0.38"
 tokio = { version = "1.21.0", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1.36"
