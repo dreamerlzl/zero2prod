@@ -11,7 +11,6 @@ use crate::context::StateContext;
 pub fn get_api_service(context: StateContext, server_url: &str) -> (impl IntoEndpoint, ()) {
     let service = OpenApiService::new(
         (
-            newsletters::Api::new(context.clone()),
             dashboard::Api::new(context.clone()),
             password::Api::new(context),
         ),

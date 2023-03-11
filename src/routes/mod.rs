@@ -1,6 +1,16 @@
-use poem::{get, middleware::Tracing, post, Endpoint, EndpointExt, Route};
+use poem::{
+    get,
+    middleware::{AddData, Tracing},
+    post, Endpoint, EndpointExt, Route,
+};
 
-use self::{admin::logout::post_logout, health::health_check};
+use self::{
+    admin::{
+        logout::post_logout,
+        newsletters::{get_newsletter_submit_form, publish_newsletter},
+    },
+    health::health_check,
+};
 use crate::{auth::reject_anoynmous_user, configuration::Configuration, context::StateContext};
 
 mod admin;
@@ -15,6 +25,14 @@ pub async fn default_route(conf: Configuration, context: StateContext) -> Route 
     let mut route = Route::new()
         .at("/api/v1/health_check", get(health_check))
         .at("/logout", post(post_logout).around(reject_anoynmous_user))
+        .at(
+            "/admin/newsletters",
+            post(publish_newsletter)
+                .get(get_newsletter_submit_form)
+                .around(reject_anoynmous_user)
+                .with(Tracing)
+                .with(AddData::new(context.clone())),
+        )
         .at("/", get(home::home));
 
     let server_url = format!("http://127.0.0.1:{}", conf.app.port);

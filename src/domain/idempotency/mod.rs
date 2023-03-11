@@ -1,5 +1,5 @@
 mod persistence;
-pub use persistence::get_saved_response;
+pub use persistence::{get_saved_response, save_response};
 
 #[derive(Debug)]
 pub struct IdempotencyKey(String);

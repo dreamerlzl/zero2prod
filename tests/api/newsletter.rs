@@ -1,4 +1,3 @@
-use reqwest::StatusCode;
 use uuid::Uuid;
 use wiremock::{
     matchers::{method, path},

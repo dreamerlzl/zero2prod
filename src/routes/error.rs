@@ -33,6 +33,10 @@ impl Display for ApiErrorResponse {
 impl From<PublishError> for ApiErrorResponse {
     fn from(value: PublishError) -> Self {
         match value {
+            PublishError::GetSavedResponseFail(e) => {
+                error!(error = e.to_string(), "fail to get saved responses");
+                ApiErrorResponse::InternalServerError
+            }
             PublishError::BadIdemPotencyKey => {
                 ApiErrorResponse::BadRequest(PlainText("Invalid idempotency key".to_owned()))
             }
