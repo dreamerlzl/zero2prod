@@ -2,7 +2,7 @@ use anyhow::Context;
 use poem::Response;
 use reqwest::StatusCode;
 use sea_orm::DatabaseConnection;
-use sqlx::postgres::PgHasArrayType;
+use sqlx::{postgres::PgHasArrayType, Postgres, Transaction};
 use uuid::Uuid;
 
 use super::IdempotencyKey;
@@ -56,8 +56,9 @@ pub async fn get_saved_response(
     }
 }
 
+#[tracing::instrument(skip(tx, user_id))]
 pub async fn save_response(
-    db: &DatabaseConnection,
+    mut tx: Transaction<'static, Postgres>,
     idempotency_key: &IdempotencyKey,
     user_id: &Uuid,
     resp: Response,
@@ -75,18 +76,16 @@ pub async fn save_response(
     let (parts, body) = resp.into_parts();
     // we assume the memory can hold the whole body
     let payload = body.into_bytes().await?;
-    let pool = db.get_postgres_connection_pool();
     sqlx::query_unchecked!(
         r#"
-        insert into idempotency (
-            user_id,
-            idempotency_key,
-            resp_status_code,
-            resp_headers,
-            resp_body,
-            created_at
-        )
-        values ($1, $2, $3, $4, $5, now())
+        UPDATE idempotency
+        SET
+            resp_status_code  = $3,
+            resp_headers      = $4,
+            resp_body         = $5
+        WHERE
+            user_id          = $1 AND
+            idempotency_key  = $2
         "#,
         user_id,
         idempotency_key.as_ref(),
@@ -94,8 +93,48 @@ pub async fn save_response(
         headers,
         payload.as_ref(),
     )
-    .execute(pool)
+    .execute(&mut tx)
     .await?;
+    tx.commit().await?;
     let resp = Response::from_parts(parts, poem::Body::from_bytes(payload));
     Ok(resp)
+}
+
+pub enum NextAction {
+    ContinueProcessing(Transaction<'static, Postgres>),
+    ReturnSavedResponse(poem::Response),
+}
+
+#[tracing::instrument(skip(db, user_id))]
+pub async fn try_processing(
+    db: &DatabaseConnection,
+    idempotency_key: &IdempotencyKey,
+    user_id: &Uuid,
+) -> Result<NextAction, anyhow::Error> {
+    let pool = db.get_postgres_connection_pool();
+    let mut transaction = pool.begin().await?;
+    let num_inserted_rows = sqlx::query!(
+        r#"
+        insert into idempotency (
+            user_id,
+            idempotency_key,
+            created_at
+            )
+        values ($1, $2, now())
+        on conflict do nothing
+        "#,
+        user_id,
+        idempotency_key.as_ref()
+    )
+    .execute(&mut transaction)
+    .await?
+    .rows_affected();
+    if num_inserted_rows > 0 {
+        Ok(NextAction::ContinueProcessing(transaction))
+    } else {
+        let saved_resp = get_saved_response(db, idempotency_key, user_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("a saved response expected"))?;
+        Ok(NextAction::ReturnSavedResponse(saved_resp))
+    }
 }

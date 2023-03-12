@@ -11,7 +11,9 @@ use super::super::subscriptions::ConfirmStatus;
 use crate::{
     context::StateContext,
     domain::{
-        idempotency::{get_saved_response, save_response, IdempotencyKey},
+        idempotency::{
+            get_saved_response, save_response, try_processing, IdempotencyKey, NextAction,
+        },
         Email,
     },
     entities::subscriptions::{self, Entity as Subscriptions},
@@ -32,7 +34,6 @@ pub async fn publish_newsletter(
     // asynchrounously
     let db = &context.db;
     let email_client = &context.email_client;
-    let subscribers = get_confirmed_subscribers(db).await?;
     let NewsletterForm {
         title,
         text_content,
@@ -42,6 +43,16 @@ pub async fn publish_newsletter(
     let idempotency_key: IdempotencyKey = idempotency_key
         .try_into()
         .map_err(BasicError::interval_error)?;
+
+    let tx = match try_processing(db, &idempotency_key, user_id.0)
+        .await
+        .map_err(BasicError::interval_error)?
+    {
+        NextAction::ContinueProcessing(tx) => tx,
+        NextAction::ReturnSavedResponse(saved_resp) => {
+            return Ok(saved_resp);
+        }
+    };
 
     if let Some(saved_resp) = get_saved_response(db, &idempotency_key, user_id.0)
         .await
@@ -72,7 +83,7 @@ pub async fn publish_newsletter(
         "The newsletter issue has been published!",
     )
     .into_response();
-    let resp = save_response(db, &idempotency_key, user_id.0, resp)
+    let resp = save_response(tx, &idempotency_key, user_id.0, resp)
         .await
         .map_err(BasicError::interval_error)?;
     Ok(resp)

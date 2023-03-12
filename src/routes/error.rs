@@ -103,7 +103,7 @@ macro_rules! generate_error_response {
             }
 
             pub fn see_other(location: &str, message: &str) -> Self {
-                $enum_name::SeeOther(location.to_owned(), message.to_owned())
+                $enum_name::SeeOther(location.to_owned(), flash_message(message))
             }
         }
 

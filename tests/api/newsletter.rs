@@ -7,6 +7,30 @@ use wiremock::{
 use super::helpers::{assert_is_redirect_to, ConfirmationLinks, TestAppWithCookie};
 use crate::{cookie_test, login_test};
 
+login_test!(concurrent_form_submission_handled_gracefully, [app]{
+    create_confirmed_subscriber(&app).await;
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(
+            // the delay duration here must be within the timeout conf for email client
+            // otherwise, neither request would make it
+            ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(2)))
+        .expect(1)
+        .mount(&app.email_server)
+        .await;
+    let body = serde_json::json!({
+        "title": "title",
+        "text_content": "plain text",
+        "html_content": "<p>html body</p>",
+        "idempotency_key": Uuid::new_v4().to_string(),
+    });
+    let resp1 = app.post_newsletters(body.clone());
+    let resp2 = app.post_newsletters(body);
+    let (resp1, resp2) = tokio::join!(resp1, resp2);
+    assert_eq!(resp1.status(), resp2.status());
+    assert_eq!(resp1.text().await.expect("fail to get text body from resp1"), resp2.text().await.expect("fail to get text body from resp2"));
+});
+
 login_test!(newsletters_returns_400_given_invalid_data, [app] {
     let test_cases = vec![
         // missing content

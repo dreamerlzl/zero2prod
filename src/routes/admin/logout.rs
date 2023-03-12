@@ -3,11 +3,12 @@ use reqwest::{header::LOCATION, StatusCode};
 
 use crate::session_state::FLASH_KEY;
 
+// if we don't wrap with poem::Result here, the redirection won't work
 #[handler]
-pub async fn post_logout(session: &Session) -> impl IntoResponse {
+pub async fn post_logout(session: &Session) -> poem::Result<impl IntoResponse> {
     tracing::info!("logout success in pure handler");
     session.purge();
-    poem::Response::builder()
+    let resp = poem::Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(LOCATION, "/login")
         .header(
@@ -18,4 +19,5 @@ pub async fn post_logout(session: &Session) -> impl IntoResponse {
             ),
         )
         .finish();
+    Ok(resp)
 }
