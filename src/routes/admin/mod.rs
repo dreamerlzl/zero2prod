@@ -3,12 +3,15 @@ pub mod logout;
 pub mod newsletters;
 mod password;
 
-use poem::IntoEndpoint;
+use poem::{Endpoint, IntoEndpoint};
 use poem_openapi::OpenApiService;
 
 use crate::context::StateContext;
 
-pub fn get_api_service(context: StateContext, server_url: &str) -> (impl IntoEndpoint, ()) {
+pub fn get_api_service(
+    context: StateContext,
+    server_url: &str,
+) -> (impl IntoEndpoint, impl Endpoint) {
     let service = OpenApiService::new(
         (
             dashboard::Api::new(context.clone()),
@@ -18,5 +21,6 @@ pub fn get_api_service(context: StateContext, server_url: &str) -> (impl IntoEnd
         "0.1",
     )
     .server(server_url);
-    (service, ())
+    let ui = service.swagger_ui();
+    (service, ui)
 }

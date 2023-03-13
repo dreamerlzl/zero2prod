@@ -11,13 +11,14 @@ use secrecy::Secret;
 use serde::Deserialize;
 use tracing::instrument;
 
-use super::add_tracing;
+use super::{add_tracing, error::BasicError};
 use crate::{
-    auth::{validate_credentials, AuthError, Credentials},
+    auth::{validate_credentials, Credentials},
     context::StateContext,
     session_state::{FLASH_KEY, USER_ID_KEY},
-    utils::see_other_with_cookie,
 };
+
+type LoginResult<T> = std::result::Result<T, BasicError>;
 
 pub struct Api {
     context: StateContext,
@@ -84,7 +85,7 @@ impl Api {
         &self,
         form: Form<LoginFrom>,
         session: &Session,
-    ) -> Result<Response<()>, poem::Error> {
+    ) -> LoginResult<Response<()>> {
         let credentials = Credentials {
             username: form.0.username.clone(),
             password: Secret::new(form.0.password),
@@ -104,13 +105,7 @@ impl Api {
                     .status(StatusCode::SEE_OTHER)
                     .header(LOCATION, "/admin/dashboard"))
             }
-            Err(e) => {
-                let e = match e {
-                    AuthError::InvalidCredentials(_) => LoginError::AuthError(e.into()),
-                    AuthError::UnexpectedError(_) => LoginError::UnexpectedError(e.into()),
-                };
-                Err(see_other_with_cookie("/login", &e.to_string()))
-            }
+            Err(e) => Err(BasicError::see_other("/login", &e.to_string())),
         }
     }
 }
@@ -120,14 +115,6 @@ pub struct LoginFrom {
     username: String,
     // Secret<> doesn't impl poem_openapi::types::Type
     password: String,
-}
-
-#[derive(Debug, thiserror::Error)]
-enum LoginError {
-    #[error("Authentication failed")]
-    AuthError(#[source] anyhow::Error),
-    #[error("internal error")]
-    UnexpectedError(#[from] anyhow::Error),
 }
 
 impl Api {

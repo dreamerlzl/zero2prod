@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use poem::{handler, web::cookie::CookieJar, IntoResponse};
 use poem_openapi::Object;
 use sea_orm::{
@@ -15,17 +15,18 @@ use crate::{
         Email,
     },
     entities::subscriptions::{self, Entity as Subscriptions},
-    routes::ApiErrorResponse,
+    routes::error::{see_other_with_cookie, BasicError},
     session_state::FLASH_KEY,
-    utils::see_other_with_cookie2,
 };
+
+type PublishResult<T> = std::result::Result<T, BasicError>;
 
 #[handler]
 pub async fn publish_newsletter(
     context: poem::web::Data<&StateContext>,
     form: poem::web::Form<NewsletterForm>,
     user_id: poem::web::Data<&Uuid>,
-) -> Result<poem::Response, ApiErrorResponse> {
+) -> PublishResult<poem::Response> {
     // list all confirmed subscribers
     // ideally, we should let some workers to handle all the confirmed subscribers
     // asynchrounously
@@ -40,39 +41,40 @@ pub async fn publish_newsletter(
     } = form.0;
     let idempotency_key: IdempotencyKey = idempotency_key
         .try_into()
-        .map_err(|_| PublishError::BadIdemPotencyKey)?;
+        .map_err(BasicError::interval_error)?;
+
     if let Some(saved_resp) = get_saved_response(db, &idempotency_key, user_id.0)
         .await
-        .map_err(PublishError::GetSavedResponseFail)?
+        .context("fail to get saved response")
+        .map_err(BasicError::interval_error)?
     {
         return Ok(saved_resp);
     }
+    let subscribers = get_confirmed_subscribers(db)
+        .await
+        .map_err(BasicError::interval_error)?;
     for subscriber in subscribers {
         match subscriber {
             Ok(subscriber) => {
                 email_client
                     .send_email(&subscriber.email, &title, &html_content, &text_content)
-                    .await?;
+                    .await
+                    .context("fail to send emails to third-party email service")
+                    .map_err(BasicError::interval_error)?;
             }
             Err(error) => {
                 tracing::warn!(error.cause_chain=?error, "skipping a confirmed subscriber due to invalid email stored")
             }
         }
     }
-    let resp = see_other_with_cookie2(
+    let resp = see_other_with_cookie(
         "/admin/newsletters",
         "The newsletter issue has been published!",
     )
     .into_response();
     let resp = save_response(db, &idempotency_key, user_id.0, resp)
         .await
-        .map_err(|e| {
-            tracing::error!(
-                error = e.to_string(),
-                "internal error during saving response for retry-safety"
-            );
-            ApiErrorResponse::InternalServerError
-        })?;
+        .map_err(BasicError::interval_error)?;
     Ok(resp)
 }
 
@@ -106,21 +108,6 @@ pub struct NewsletterForm {
 
 struct ConfirmedSubscriber {
     email: Email,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum PublishError {
-    #[error("fail to get saved response")]
-    GetSavedResponseFail(#[source] anyhow::Error),
-
-    #[error("invalid idempotency key")]
-    BadIdemPotencyKey,
-
-    #[error("Authentication failed.")]
-    AuthError(#[source] anyhow::Error),
-
-    #[error("unexpected error")]
-    UnexpectedError(#[from] anyhow::Error),
 }
 
 async fn get_confirmed_subscribers(

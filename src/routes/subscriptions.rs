@@ -1,24 +1,25 @@
 use std::convert::TryFrom;
 
+use anyhow::Context;
 use poem::Endpoint;
 use poem_openapi::{
     param::Query,
-    payload::{Form, Json, PlainText},
+    payload::{Form, Json},
     Object, OpenApi, OpenApiService,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sea_orm::*;
 use serde::Deserialize;
-use tracing::{error, warn};
 use uuid::Uuid;
 
-use super::add_tracing;
+use super::{add_tracing, error::BasicError};
 use crate::{
     context::StateContext,
     domain::{Email, UserName},
     entities::{prelude::*, subscription_tokens, subscriptions},
-    routes::ApiErrorResponse,
 };
+
+type SubscriptionResult<T> = std::result::Result<T, BasicError>;
 
 pub struct Api {
     context: StateContext,
@@ -110,18 +111,31 @@ impl Api {
     async fn subscribe(
         &self,
         form: Form<SubscribeFormData>,
-    ) -> Result<Json<CreateSuccess>, ApiErrorResponse> {
-        let new_subscriber = NewSubscriber::try_from(form)
-            .map_err(|e| ApiErrorResponse::BadRequest(PlainText(e)))?;
+    ) -> SubscriptionResult<Json<CreateSuccess>> {
+        let new_subscriber = NewSubscriber::try_from(form).map_err(BasicError::bad_request)?;
         let recipient = new_subscriber.email.clone();
 
-        let txn = self.context.db.begin().await?;
-        let last_insert_id = Api::insert_subscriber(&txn, new_subscriber).await?;
+        let txn = self
+            .context
+            .db
+            .begin()
+            .await
+            .context("fail to init db transaction")
+            .map_err(BasicError::interval_error)?;
+        let last_insert_id = Api::insert_subscriber(&txn, new_subscriber)
+            .await
+            .context("fail to insert a new subscriber")
+            .map_err(BasicError::interval_error)?;
         let subscription_token = generate_subscription_token();
-        Api::store_subscription_token(&txn, last_insert_id, subscription_token.clone()).await?;
+        Api::store_subscription_token(&txn, last_insert_id, subscription_token.clone())
+            .await
+            .context("fail to store new subscription_token")
+            .map_err(BasicError::interval_error)?;
         self.send_subscription_email(recipient, &subscription_token)
-            .await?;
-        txn.commit().await?;
+            .await
+            .context("fail to send subscription email")
+            .map_err(BasicError::interval_error)?;
+        txn.commit().await.map_err(BasicError::interval_error)?;
 
         Ok(Json(CreateSuccess {
             id: last_insert_id.to_string(),
@@ -130,36 +144,42 @@ impl Api {
 
     #[oai(path = "/confirm", method = "get", transform = "add_tracing")]
     #[tracing::instrument(skip(self, token), name = "new subscription confirm")]
-    async fn confirm(&self, token: Query<String>) -> Result<(), ApiErrorResponse> {
+    async fn confirm(&self, token: Query<String>) -> SubscriptionResult<()> {
         let subscription_token = token.0.clone();
         let subscriber_status = SubscriptionTokens::find()
             .filter(subscription_tokens::Column::SubscriptionToken.eq(subscription_token))
             .one(&self.context.db)
-            .await?;
+            .await
+            .context("fail to find the subscriber with the specified token")
+            .map_err(BasicError::interval_error)?;
         if subscriber_status.is_none() {
-            warn!(token = token.0, "token not found in db");
-            return Err(ApiErrorResponse::BadRequest(PlainText(
-                "token not found in db".to_owned(),
-            )));
+            let msg = format!("token {} not found in db", token.0);
+            return Err(BasicError::bad_request(msg));
         }
         let subscriber_status = subscriber_status.unwrap();
         let subscriber_id = subscriber_status.subscriber_id;
         let subscriber = Subscriptions::find_by_id(subscriber_id)
             .one(&self.context.db)
-            .await?;
+            .await
+            .context("fail to find subscriber with id")
+            .map_err(BasicError::interval_error)?;
         match subscriber {
             Some(subscriber) => {
                 let mut subscriber: subscriptions::ActiveModel = subscriber.into();
                 subscriber.status = Set(ConfirmStatus::Confirmed.to_string());
-                subscriber.update(&self.context.db).await?;
+                subscriber
+                    .update(&self.context.db)
+                    .await
+                    .context("fail to update the subscriber status")
+                    .map_err(BasicError::interval_error)?;
                 Ok(())
             }
             None => {
-                error!(
-                    subscriber_id = subscriber_id.to_string(),
-                    "fail to find subscriber despite foreign key contraint"
+                let msg = format!(
+                    "fail to find subscriber despite foreign key contraint: {}",
+                    subscriber_id
                 );
-                Err(ApiErrorResponse::InternalServerError)
+                Err(BasicError::interval_error(msg))
             }
         }
     }

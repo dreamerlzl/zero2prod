@@ -14,12 +14,11 @@ use self::{
 use crate::{auth::reject_anoynmous_user, configuration::Configuration, context::StateContext};
 
 mod admin;
-mod error;
+pub mod error;
 pub mod health;
 mod home;
 mod login;
 pub mod subscriptions;
-pub use error::ApiErrorResponse;
 
 pub async fn default_route(conf: Configuration, context: StateContext) -> Route {
     let mut route = Route::new()
@@ -48,8 +47,8 @@ pub async fn default_route(conf: Configuration, context: StateContext) -> Route 
         login::get_api_service(context.clone(), &format!("{server_url}/login"));
     route = route.nest("/login", login_service).nest("/login/docs", ui);
 
-    let (admin_service, _) = admin::get_api_service(context, &format!("{server_url}/admin"));
-    route = route.nest("/admin", admin_service);
+    let (admin_service, ui) = admin::get_api_service(context, &format!("{server_url}/admin"));
+    route = route.nest("/admin", admin_service).nest("/admin/docs", ui);
 
     route
 }

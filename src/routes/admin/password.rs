@@ -1,5 +1,5 @@
-use anyhow::anyhow;
-use poem::{web::Data, Result};
+use anyhow::{anyhow, Context};
+use poem::web::Data;
 use poem_openapi::{
     payload::{Form, Html},
     Object, OpenApi,
@@ -14,10 +14,12 @@ use crate::{
     auth::{get_hash, validate_credentials, AuthError, Credentials},
     context::StateContext,
     entities::user,
-    routes::add_session_uid_check,
+    routes::{add_session_uid_check, error::BasicError},
     session_state::FLASH_KEY,
-    utils::{e400, e500, see_other_with_cookie, spawn_blocking_with_tracing},
+    utils::spawn_blocking_with_tracing,
 };
+
+type PasswordResult<T> = std::result::Result<T, BasicError>;
 
 pub struct Api {
     context: StateContext,
@@ -33,12 +35,12 @@ impl Api {
     pub async fn change_password_form(
         &self,
         cookiejar: &poem::web::cookie::CookieJar,
-    ) -> Result<Html<String>> {
+    ) -> Html<String> {
         let mut msg_html = String::new();
         if let Some(cookie) = cookiejar.get(FLASH_KEY) {
             msg_html.push_str(&format!("<p><i>{}</i></p>", cookie.value_str()));
         }
-        Ok(Html(format!(
+        Html(format!(
             r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -77,7 +79,7 @@ impl Api {
     <p><a href="/admin/dashboard">&lt;- Back</a></p>
 </body>
 </html>"#,
-        )))
+        ))
     }
 
     #[oai(
@@ -89,15 +91,15 @@ impl Api {
         &self,
         form: Form<ChangePasswordForm>,
         user_id: Data<&Uuid>,
-    ) -> Result<()> {
+    ) -> PasswordResult<()> {
         if form.new_password.len() > 128 || form.new_password.len() < 12 {
-            return Err(see_other_with_cookie(
+            return Err(BasicError::see_other(
                 "/admin/password",
                 "The password length must be between 12 to 128",
             ));
         }
         if form.new_password != form.new_password_check {
-            return Err(see_other_with_cookie(
+            return Err(BasicError::see_other(
                 "/admin/password",
                 "You entered two different new passwords - the field values must match",
             ));
@@ -105,25 +107,28 @@ impl Api {
         let user_id = user_id.0;
         let username = get_username(*user_id, &self.context.db)
             .await
-            .map_err(|e| e500(&e.to_string(), "fail to get username from id"))?
-            .ok_or(e400("no username found for id".to_string()))?;
+            .context("fail to get username from user_id")
+            .map_err(BasicError::interval_error)?
+            .ok_or(BasicError::bad_request(
+                "no username found for id".to_owned(),
+            ))?;
         let credentials = Credentials {
             username,
             password: Secret::new(form.current_password.clone()),
         };
         match validate_credentials(&self.context.db, credentials).await {
             Err(e) => match e {
-                AuthError::InvalidCredentials(_) => Err(see_other_with_cookie(
+                AuthError::InvalidCredentials(_) => Err(BasicError::see_other(
                     "/admin/password",
                     "The current password is incorrect",
                 )),
-                AuthError::UnexpectedError(_) => Err(e500(&e.to_string(), "")),
+                AuthError::UnexpectedError(_) => Err(BasicError::interval_error(e)),
             },
             Ok(uid) => {
                 change_password(uid, form.new_password.clone(), &self.context.db)
                     .await
-                    .map_err(|e| e500(&e.to_string(), "fail to change user password"))?;
-                Err(see_other_with_cookie(
+                    .map_err(BasicError::interval_error)?;
+                Err(BasicError::see_other(
                     "/admin/password",
                     "Your password has been changed.",
                 ))

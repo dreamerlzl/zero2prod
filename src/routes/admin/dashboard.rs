@@ -1,19 +1,20 @@
-use poem::{web::Data, Error, Result};
+use poem::web::Data;
 use poem_openapi::{payload::Html, OpenApi};
-use reqwest::StatusCode;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
-use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::super::add_session_uid_check;
 use crate::{
     context::StateContext,
     entities::user::{self, Entity as Users},
+    routes::error::BasicError,
 };
 
 pub struct Api {
     context: StateContext,
 }
+
+type DashboardResult<T> = std::result::Result<T, BasicError>;
 
 #[OpenApi]
 impl Api {
@@ -22,7 +23,7 @@ impl Api {
         method = "get",
         transform = "add_session_uid_check"
     )]
-    pub async fn admin_dashboard(&self, user_id: Data<&Uuid>) -> Result<Html<String>> {
+    pub async fn admin_dashboard(&self, user_id: Data<&Uuid>) -> DashboardResult<Html<String>> {
         let user_id = user_id.0;
         match get_username(*user_id, &self.context.db).await {
             Ok(Some(username)) => Ok(Html(format!(
@@ -48,15 +49,12 @@ impl Api {
 </html>"#
             ))),
             Ok(None) => {
-                warn!(
-                    user_id = user_id.to_string(),
-                    "username not found for user_id"
-                );
-                Err(Error::from_status(StatusCode::UNAUTHORIZED))
+                let msg = format!("username not found for user_id: {}", user_id);
+                Err(BasicError::auth_error(msg))
             }
             Err(e) => {
-                error!(error = e.to_string(), "fail to get username");
-                Err(Error::from_status(StatusCode::INTERNAL_SERVER_ERROR))
+                let msg = format!("fail to get username: {e}");
+                Err(BasicError::interval_error(msg))
             }
         }
     }
