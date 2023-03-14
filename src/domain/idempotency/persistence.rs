@@ -113,6 +113,8 @@ pub async fn try_processing(
 ) -> Result<NextAction, anyhow::Error> {
     let pool = db.get_postgres_connection_pool();
     let mut transaction = pool.begin().await?;
+    // a concurrent but later request would wait for the first to finish the following before proceeding
+    // see postgres read committed isolation
     let num_inserted_rows = sqlx::query!(
         r#"
         insert into idempotency (

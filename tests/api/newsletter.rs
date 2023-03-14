@@ -1,11 +1,54 @@
+use fake::{
+    faker::{internet::en::SafeEmail, name::en::Name},
+    Fake,
+};
 use uuid::Uuid;
 use wiremock::{
     matchers::{method, path},
-    Mock, ResponseTemplate,
+    Mock, MockBuilder, ResponseTemplate,
 };
 
 use super::helpers::{assert_is_redirect_to, ConfirmationLinks, TestAppWithCookie};
 use crate::{cookie_test, login_test};
+
+fn when_sending_an_email() -> MockBuilder {
+    Mock::given(path("/email")).and(method("POST"))
+}
+
+login_test!(transient_error_do_not_cause_duplicate_deliveries_on_retries, [app]{
+    create_confirmed_subscriber(&app).await;
+    create_confirmed_subscriber(&app).await;
+    when_sending_an_email()
+        .respond_with(ResponseTemplate::new(200))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&app.email_server)
+        .await;
+    when_sending_an_email()
+        .respond_with(ResponseTemplate::new(500))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&app.email_server)
+        .await;
+    let body = serde_json::json!({
+        "title": "title",
+        "text_content": "plain text",
+        "html_content": "<p>html body</p>",
+        "idempotency_key": Uuid::new_v4().to_string(),
+    });
+    let resp = app.post_newsletters(body.clone()).await;
+    assert_eq!(resp.status().as_u16(), 500);
+
+    // retry submitting the form
+    when_sending_an_email()
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .named("Delivery retry")
+        .mount(&app.email_server)
+        .await;
+    let resp = app.post_newsletters(body).await;
+    assert_eq!(resp.status().as_u16(), 303);
+});
 
 login_test!(concurrent_form_submission_handled_gracefully, [app]{
     create_confirmed_subscriber(&app).await;
@@ -137,8 +180,16 @@ async fn create_unconfirmed_subscriber(app: &TestAppWithCookie) -> ConfirmationL
         .expect(1)
         .mount_as_scoped(&app.email_server)
         .await;
+    let username: String = Name().fake();
+    let email: String = SafeEmail().fake();
     let resp = app
-        .post_subscription("username=lzl&email=lzl2@gmail.com")
+        .post_subscription(
+            serde_urlencoded::to_string(&serde_json::json!({
+                "username": username,
+                "email": email,
+            }))
+            .unwrap(),
+        )
         .await;
     assert_eq!(resp.status().as_u16(), reqwest::StatusCode::OK);
     let email_request = &app
