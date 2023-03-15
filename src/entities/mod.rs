@@ -2,6 +2,7 @@
 
 pub mod prelude;
 
+pub mod newsletter_issues;
 pub mod subscription_tokens;
 pub mod subscriptions;
 pub mod user;

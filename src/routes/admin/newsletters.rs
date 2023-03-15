@@ -1,22 +1,15 @@
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use poem::{handler, web::cookie::CookieJar, IntoResponse};
 use poem_openapi::Object;
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, DeriveColumn, EntityTrait, EnumIter, QueryFilter, QuerySelect,
-};
 use serde::Deserialize;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use super::super::subscriptions::ConfirmStatus;
 use crate::{
     context::StateContext,
-    domain::{
-        idempotency::{
-            get_saved_response, save_response, try_processing, IdempotencyKey, NextAction,
-        },
-        Email,
+    domain::idempotency::{
+        get_saved_response, save_response, try_processing, IdempotencyKey, NextAction,
     },
-    entities::subscriptions::{self, Entity as Subscriptions},
     routes::error::{see_other_with_cookie, BasicError},
     session_state::FLASH_KEY,
 };
@@ -33,7 +26,6 @@ pub async fn publish_newsletter(
     // ideally, we should let some workers to handle all the confirmed subscribers
     // asynchrounously
     let db = &context.db;
-    let email_client = &context.email_client;
     let NewsletterForm {
         title,
         text_content,
@@ -44,7 +36,7 @@ pub async fn publish_newsletter(
         .try_into()
         .map_err(BasicError::interval_error)?;
 
-    let tx = match try_processing(db, &idempotency_key, user_id.0)
+    let mut tx = match try_processing(db, &idempotency_key, user_id.0)
         .await
         .map_err(BasicError::interval_error)?
     {
@@ -54,6 +46,16 @@ pub async fn publish_newsletter(
         }
     };
 
+    let issue_id = insert_newsletter_issue(&mut tx, &title, &text_content, &html_content)
+        .await
+        .map_err(BasicError::interval_error)?;
+
+    // this will generate a task for each confirmed subscriber email
+    enqueue_delivery_tasks(&mut tx, issue_id)
+        .await
+        .context("fail to enqueue email delivery task")
+        .map_err(BasicError::interval_error)?;
+
     if let Some(saved_resp) = get_saved_response(db, &idempotency_key, user_id.0)
         .await
         .context("fail to get saved response")
@@ -61,23 +63,7 @@ pub async fn publish_newsletter(
     {
         return Ok(saved_resp);
     }
-    let subscribers = get_confirmed_subscribers(db)
-        .await
-        .map_err(BasicError::interval_error)?;
-    for subscriber in subscribers {
-        match subscriber {
-            Ok(subscriber) => {
-                email_client
-                    .send_email(&subscriber.email, &title, &html_content, &text_content)
-                    .await
-                    .context("fail to send emails to third-party email service")
-                    .map_err(BasicError::interval_error)?;
-            }
-            Err(error) => {
-                tracing::warn!(error.cause_chain=?error, "skipping a confirmed subscriber due to invalid email stored")
-            }
-        }
-    }
+
     let resp = see_other_with_cookie(
         "/admin/newsletters",
         "The newsletter issue has been published!",
@@ -117,33 +103,51 @@ pub struct NewsletterForm {
     idempotency_key: String,
 }
 
-struct ConfirmedSubscriber {
-    email: Email,
+async fn insert_newsletter_issue(
+    tx: &mut Transaction<'_, Postgres>,
+    title: &str,
+    text_content: &str,
+    html_content: &str,
+) -> Result<Uuid, sqlx::Error> {
+    let newsletter_issue_id = Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at
+            )
+        values ($1, $2, $3, $4, now())
+        "#,
+        newsletter_issue_id,
+        title,
+        text_content,
+        html_content
+    )
+    .execute(tx)
+    .await?;
+    Ok(newsletter_issue_id)
 }
 
-async fn get_confirmed_subscribers(
-    db: &DatabaseConnection,
-) -> Result<Vec<Result<ConfirmedSubscriber, anyhow::Error>>, sea_orm::DbErr> {
-    // select only one column without using a struct; ugly
-    #[derive(Debug, Copy, Clone, EnumIter, DeriveColumn)]
-    enum QueryAs {
-        Email,
-    }
-    let subscribers = Subscriptions::find()
-        .filter(subscriptions::Column::Status.eq(ConfirmStatus::Confirmed.to_string()))
-        .select_only()
-        .column(subscriptions::Column::Email)
-        .into_values::<_, QueryAs>()
-        .all(db)
-        .await?
-        // when we first store the subscribers' email, the app could be version X
-        // when we later fetch and parse the email, the app could be version Y
-        // email validation logic may change between these 2 versions
-        .into_iter()
-        .map(|r| match Email::parse(r) {
-            Ok(email) => Ok(ConfirmedSubscriber { email }),
-            Err(err) => Err(anyhow!(err)),
-        })
-        .collect();
-    Ok(subscribers)
+async fn enqueue_delivery_tasks(
+    tx: &mut Transaction<'_, Postgres>,
+    issue_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        INSERT INTO issue_delivery_queue (
+            newsletter_issue_id,
+            subscriber_email
+            )
+        SELECT $1, email
+        FROM subscriptions
+        WHERE status = 'confirmed'
+        "#,
+        issue_id
+    )
+    .execute(tx)
+    .await?;
+    Ok(())
 }

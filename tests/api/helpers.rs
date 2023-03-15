@@ -17,8 +17,14 @@ use secrecy::ExposeSecret;
 use sqlx::{Pool, Postgres};
 use wiremock::MockServer;
 use zero2prod_api::{
-    configuration::get_test_configuration, context::StateContext, domain::Email,
-    routes::default_route, setup_logger,
+    configuration::get_test_configuration,
+    context::StateContext,
+    domain::Email,
+    email_client::EmailClient,
+    get_email_client,
+    issue_delivery_worker::{try_execute_task, ExecutionOutcome},
+    routes::default_route,
+    setup_logger,
 };
 
 pub async fn post_subscription<T: 'static + Into<Body>>(
@@ -135,6 +141,7 @@ pub struct TestAppWithCookie {
     pub test_user: TestUser,
     address: String,
     pub email_server: MockServer,
+    pub email_client: EmailClient,
     port: u16,
 }
 
@@ -259,6 +266,17 @@ impl TestAppWithCookie {
         let plain_text = reqwest::Url::parse(&text).unwrap();
         ConfirmationLinks { html, plain_text }
     }
+
+    pub async fn dispatch_all_pending_emails(&self) {
+        loop {
+            if let ExecutionOutcome::EmptyQueue = try_execute_task(&self.db, &self.email_client)
+                .await
+                .expect("fail to deliver email in test")
+            {
+                break;
+            }
+        }
+    }
 }
 
 pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWithCookie> {
@@ -268,6 +286,7 @@ pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWit
     let email_server = MockServer::start().await;
     let mut conf = get_test_configuration("config/test").expect("fail to get conf");
     conf.email_client.api_base_url = email_server.uri();
+    let email_client = get_email_client(conf.email_client.clone())?;
     let mut context = StateContext::new(conf.clone()).await?;
     context.db = db.clone();
 
@@ -298,6 +317,7 @@ pub async fn get_test_app_with_cookie(pool: Pool<Postgres>) -> Result<TestAppWit
         .build()?;
     Ok(TestAppWithCookie {
         address: format!("http://127.0.0.1:{}", app_port),
+        email_client,
         cookie_cli,
         db,
         email_server,

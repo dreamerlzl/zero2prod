@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Display};
+
 use anyhow::Result;
 use poem::{
     listener::TcpListener,
@@ -6,9 +8,11 @@ use poem::{
 };
 use redis::{aio::ConnectionManager, Client};
 use secrecy::ExposeSecret;
+use tokio::task::JoinError;
 use tracing::info;
 use zero2prod_api::{
-    configuration::get_configuration, context::StateContext, routes::default_route, setup_logger,
+    configuration::get_configuration, context::StateContext,
+    issue_delivery_worker::run_worker_until_stop, routes::default_route, setup_logger,
 };
 
 #[tokio::main]
@@ -21,6 +25,7 @@ async fn main() -> Result<()> {
     let redis_uri = conf.redis_uri.expose_secret().clone();
     let context = StateContext::new(conf.clone()).await?;
 
+    let worker = tokio::spawn(run_worker_until_stop(conf.clone()));
     // set routing
     let route = default_route(conf, context.clone()).await;
     let client = Client::open(redis_uri)?;
@@ -32,6 +37,34 @@ async fn main() -> Result<()> {
     // start the tcp listener
     let addr = format!("0.0.0.0:{}", app_port);
     info!(addr, "zero2prod listening on");
-    Server::new(TcpListener::bind(addr)).run(app).await?;
+    let server = tokio::spawn(Server::new(TcpListener::bind(addr)).run(app));
+    tokio::select! {
+        o = server => {report_exit("api", o)},
+        o = worker => {report_exit("worker", o)},
+    }
     Ok(())
+}
+
+fn report_exit(task_name: &str, outcome: Result<Result<(), impl Debug + Display>, JoinError>) {
+    match outcome {
+        Ok(Ok(())) => {
+            tracing::info!("{} has exited", task_name)
+        }
+        Ok(Err(e)) => {
+            tracing::error!(
+                error.cause_chain = ?e,
+                error.message = %e,
+                "{} failed",
+                task_name
+            )
+        }
+        Err(e) => {
+            tracing::error!(
+                error.cause_chain = ?e,
+                error.message = %e,
+                "{}' task failed to complete",
+                task_name
+            )
+        }
+    }
 }

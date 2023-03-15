@@ -178,21 +178,26 @@ mod tests {
         let path = Path::new(&path_str);
         {
             let mut file = File::create(path).expect("fail to create the test configuration yaml");
-            let content = "
+            let content = r#"
 app:
   port: 1234
-  base_url: 'abc'
+  base_url: "http://127.0.0.1"
+  admin_username: foo
+  admin_password: foobar123
 email_client:
-  api_base_url: \"https://api.postmarkapp.com\"
-  sender_email: \"something@gmail.com\"
-  timeout_milliseconds: 10
+  api_base_url: "https://api.postmarkapp.com"
+  sender_email: "something@gmail.com"
+  authorization_token: ""
+  timeout_milliseconds: 3000
 db:
   username: foo
   password: 123
   host: bar
   port: 111
   require_ssl: true
-  name: test";
+  name: test
+redis_uri: "redis://localhost:6379/"
+"#;
             file.write_all(content.as_bytes())
                 .expect("fail to write config content");
         }

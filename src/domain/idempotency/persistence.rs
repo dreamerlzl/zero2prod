@@ -20,6 +20,7 @@ impl PgHasArrayType for HeaderPairRecord {
     }
 }
 
+// TODO: there is no expiry mechanism for our idempotency keys. Try designing one as an exercise, using what we learned on background workers as a reference.
 pub async fn get_saved_response(
     db: &DatabaseConnection,
     idempotency_key: &IdempotencyKey,

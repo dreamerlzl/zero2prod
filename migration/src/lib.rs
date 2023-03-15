@@ -7,6 +7,8 @@ mod m20221225_000004_create_subscription_token_table;
 mod m20230212_094638_create_user_table;
 mod m20230309_131331_create_idempotency_table;
 mod m20230312_033844_relax_null_checks_on_idempotency;
+mod m20230315_130704_create_newsletter_issues_table;
+mod m20230315_134230_create_issue_delivery_queue_table;
 
 pub struct Migrator;
 
@@ -21,6 +23,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20230212_094638_create_user_table::Migration),
             Box::new(m20230309_131331_create_idempotency_table::Migration),
             Box::new(m20230312_033844_relax_null_checks_on_idempotency::Migration),
+            Box::new(m20230315_130704_create_newsletter_issues_table::Migration),
+            Box::new(m20230315_134230_create_issue_delivery_queue_table::Migration),
         ]
     }
 }

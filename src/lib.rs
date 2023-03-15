@@ -9,6 +9,7 @@ pub mod context;
 pub mod domain;
 pub mod email_client;
 pub mod entities;
+pub mod issue_delivery_worker;
 pub mod routes;
 pub mod session_state;
 mod startup;

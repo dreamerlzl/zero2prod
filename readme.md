@@ -12,7 +12,7 @@
 DATABASE_URL=<url> sea-orm-cli migrate
 
 # update ORM struct def
-sea-orm-cli generate entity -u <url> -o /path/to/dir
+sea-orm-cli generate entity -u <url> -o /path/to/dir  --ignore-tables idempotency,seaql_migrations
 
 # rollback
 DATABASE_URL=<url> sea-orm-cli migrate down

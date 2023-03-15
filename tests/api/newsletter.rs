@@ -5,50 +5,50 @@ use fake::{
 use uuid::Uuid;
 use wiremock::{
     matchers::{method, path},
-    Mock, MockBuilder, ResponseTemplate,
+    Mock, ResponseTemplate,
 };
 
 use super::helpers::{assert_is_redirect_to, ConfirmationLinks, TestAppWithCookie};
 use crate::{cookie_test, login_test};
 
-fn when_sending_an_email() -> MockBuilder {
-    Mock::given(path("/email")).and(method("POST"))
-}
+//fn when_sending_an_email() -> MockBuilder {
+//    Mock::given(path("/email")).and(method("POST"))
+//}
 
-login_test!(transient_error_do_not_cause_duplicate_deliveries_on_retries, [app]{
-    create_confirmed_subscriber(&app).await;
-    create_confirmed_subscriber(&app).await;
-    when_sending_an_email()
-        .respond_with(ResponseTemplate::new(200))
-        .up_to_n_times(1)
-        .expect(1)
-        .mount(&app.email_server)
-        .await;
-    when_sending_an_email()
-        .respond_with(ResponseTemplate::new(500))
-        .up_to_n_times(1)
-        .expect(1)
-        .mount(&app.email_server)
-        .await;
-    let body = serde_json::json!({
-        "title": "title",
-        "text_content": "plain text",
-        "html_content": "<p>html body</p>",
-        "idempotency_key": Uuid::new_v4().to_string(),
-    });
-    let resp = app.post_newsletters(body.clone()).await;
-    assert_eq!(resp.status().as_u16(), 500);
-
-    // retry submitting the form
-    when_sending_an_email()
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .named("Delivery retry")
-        .mount(&app.email_server)
-        .await;
-    let resp = app.post_newsletters(body).await;
-    assert_eq!(resp.status().as_u16(), 303);
-});
+//login_test!(transient_error_do_not_cause_duplicate_deliveries_on_retries, [app]{
+//    create_confirmed_subscriber(&app).await;
+//    create_confirmed_subscriber(&app).await;
+//    when_sending_an_email()
+//        .respond_with(ResponseTemplate::new(200))
+//        .up_to_n_times(1)
+//        .expect(1)
+//        .mount(&app.email_server)
+//        .await;
+//    when_sending_an_email()
+//        .respond_with(ResponseTemplate::new(500))
+//        .up_to_n_times(1)
+//        .expect(1)
+//        .mount(&app.email_server)
+//        .await;
+//    let body = serde_json::json!({
+//        "title": "title",
+//        "text_content": "plain text",
+//        "html_content": "<p>html body</p>",
+//        "idempotency_key": Uuid::new_v4().to_string(),
+//    });
+//    let resp = app.post_newsletters(body.clone()).await;
+//    assert_eq!(resp.status().as_u16(), 500);
+//
+//    // retry submitting the form
+//    when_sending_an_email()
+//        .respond_with(ResponseTemplate::new(200))
+//        .expect(1)
+//        .named("Delivery retry")
+//        .mount(&app.email_server)
+//        .await;
+//    let resp = app.post_newsletters(body).await;
+//    assert_eq!(resp.status().as_u16(), 303);
+//});
 
 login_test!(concurrent_form_submission_handled_gracefully, [app]{
     create_confirmed_subscriber(&app).await;
@@ -72,6 +72,7 @@ login_test!(concurrent_form_submission_handled_gracefully, [app]{
     let (resp1, resp2) = tokio::join!(resp1, resp2);
     assert_eq!(resp1.status(), resp2.status());
     assert_eq!(resp1.text().await.expect("fail to get text body from resp1"), resp2.text().await.expect("fail to get text body from resp2"));
+    app.dispatch_all_pending_emails().await;
 });
 
 login_test!(newsletters_returns_400_given_invalid_data, [app] {
@@ -115,6 +116,7 @@ login_test!(newsletters_not_delivered_to_unconfirmed_subscribers, [app]{
     });
     let resp = app.post_newsletters(request).await;
     assert_is_redirect_to(&resp, "/admin/newsletters");
+    app.dispatch_all_pending_emails().await;
 });
 
 login_test!(newsletters_delivered_to_confirmed_subscribers, [app]{
@@ -132,6 +134,7 @@ login_test!(newsletters_delivered_to_confirmed_subscribers, [app]{
     });
     let resp = app.post_newsletters(request).await;
     assert_is_redirect_to(&resp, "/admin/newsletters");
+    app.dispatch_all_pending_emails().await;
 });
 
 login_test!(newsletter_creation_is_idempotent, [app]{
@@ -158,6 +161,7 @@ login_test!(newsletter_creation_is_idempotent, [app]{
 
     let html_page = app.get_publish_newsletter_html().await;
     assert!(html_page.contains("The newsletter issue has been published!"));
+    app.dispatch_all_pending_emails().await;
 });
 
 cookie_test!(requests_without_authorization_are_redirected, [app]{
