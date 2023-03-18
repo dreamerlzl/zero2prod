@@ -212,11 +212,6 @@ struct CreateSuccess {
     id: String,
 }
 
-#[derive(Object)]
-struct InvalidData {
-    msg: String,
-}
-
 pub enum ConfirmStatus {
     Pending,
     Confirmed,

@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context};
 use poem::web::Data;
 use poem_openapi::{
     payload::{Form, Html},
-    Object, OpenApi,
+    Object, OpenApi, Tags,
 };
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use secrecy::Secret;
@@ -25,13 +25,14 @@ pub struct Api {
     context: StateContext,
 }
 
-#[OpenApi]
+#[derive(Tags)]
+enum MyTags {
+    Password,
+}
+
+#[OpenApi(prefix_path = "/password", tag = "MyTags::Password")]
 impl Api {
-    #[oai(
-        path = "/password",
-        method = "get",
-        transform = "add_session_uid_check"
-    )]
+    #[oai(path = "/", method = "get", transform = "add_session_uid_check")]
     pub async fn change_password_form(
         &self,
         cookiejar: &poem::web::cookie::CookieJar,
@@ -82,11 +83,7 @@ impl Api {
         ))
     }
 
-    #[oai(
-        path = "/password",
-        method = "post",
-        transform = "add_session_uid_check"
-    )]
+    #[oai(path = "/", method = "post", transform = "add_session_uid_check")]
     pub async fn change_password(
         &self,
         form: Form<ChangePasswordForm>,
