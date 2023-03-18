@@ -1,26 +1,22 @@
 use std::str::FromStr;
 
-use anyhow::Result;
 use poem::http::StatusCode;
 use sea_orm::{prelude::Uuid, *};
-use sqlx::{Pool, Postgres};
 use wiremock::{matchers::path, Mock, ResponseTemplate};
 use zero2prod_api::{entities::subscriptions, routes::subscriptions::ConfirmStatus};
 
-use crate::api::helpers::{email, get_first_link, get_test_app, post_subscription};
+use crate::{
+    api::helpers::{email, get_first_link, post_subscription},
+    normal_test,
+};
 
-#[sqlx::test]
-async fn confirmations_without_token_rejected_with_400(pool: Pool<Postgres>) -> Result<()> {
-    let app = get_test_app(pool).await?;
+normal_test!(confirmations_without_token_rejected_with_400, [app] {
     let cli = &app.cli;
     let resp = cli.get("/subscriptions/confirm").send().await;
     resp.assert_status(StatusCode::BAD_REQUEST);
-    Ok(())
-}
+});
 
-#[sqlx::test]
-async fn subscribe_and_then_confirm(pool: Pool<Postgres>) -> Result<()> {
-    let app = get_test_app(pool).await?;
+normal_test!(subscribe_and_then_confirm, [app] {
     Mock::given(path("/email"))
         .respond_with(ResponseTemplate::new(200))
         .expect(1)
@@ -53,5 +49,4 @@ async fn subscribe_and_then_confirm(pool: Pool<Postgres>) -> Result<()> {
     assert_eq!(new_user.name, test_user);
     assert_eq!(new_user.email, test_email.to_string());
     assert_eq!(new_user.status, ConfirmStatus::Confirmed.to_string());
-    Ok(())
-}
+});

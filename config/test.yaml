@@ -1,0 +1,18 @@
+app:
+  port: 8083
+  base_url: "http://127.0.0.1"
+  admin_username: dreamerlzl
+  admin_password: foobar123
+db:
+  username: postgres
+  password: password
+  port: 5432
+  name: newsletter
+  host: "127.0.0.1"
+  require_ssl: false
+email_client:
+  api_base_url: ""
+  sender_email: "875350879@qq.com"
+  authorization_token: ""
+  timeout_milliseconds: 3000
+redis_uri: "redis://localhost:6379/"

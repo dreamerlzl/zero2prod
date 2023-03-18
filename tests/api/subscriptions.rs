@@ -1,20 +1,16 @@
 use std::str::FromStr;
 
-use anyhow::Result;
 use poem::http::StatusCode;
 use sea_orm::{prelude::Uuid, *};
-use sqlx::{Pool, Postgres};
 use wiremock::{matchers::path, Mock, ResponseTemplate};
 use zero2prod_api::{entities::subscriptions, routes::subscriptions::ConfirmStatus};
 
 use crate::{
-    api::helpers::{email, get_first_link, get_test_app, post_subscription},
+    api::helpers::{email, get_first_link, post_subscription},
     normal_test,
 };
 
-#[sqlx::test]
-async fn subscribe_returns_a_200_for_valid_form_data(pool: Pool<Postgres>) -> Result<()> {
-    let test_app = get_test_app(pool).await?;
+normal_test!(subscribe_returns_a_200_for_valid_form_data, [test_app]{
     let cli = &test_app.cli;
     Mock::given(path("/email"))
         .respond_with(ResponseTemplate::new(200))
@@ -29,17 +25,14 @@ async fn subscribe_returns_a_200_for_valid_form_data(pool: Pool<Postgres>) -> Re
         let resp = post_subscription(cli, data).await;
         resp.assert_status(StatusCode::OK);
     }
-    Ok(())
-}
+});
 
-#[sqlx::test]
-async fn subscribe_persists_the_new_subscriber(pool: Pool<Postgres>) -> Result<()> {
-    let test_app = get_test_app(pool).await?;
-    let cli = &test_app.cli;
-    let db = &test_app.db;
+normal_test!(subscribe_persists_the_new_subscriber, [app]{
+    let cli = &app.cli;
+    let db = &app.db;
     Mock::given(path("/email"))
         .respond_with(ResponseTemplate::new(200))
-        .mount(&test_app.email_server)
+        .mount(&app.email_server)
         .await;
     let data = "username=lzl&email=bar@qq.com";
     let resp = post_subscription(cli, data).await;
@@ -53,8 +46,7 @@ async fn subscribe_persists_the_new_subscriber(pool: Pool<Postgres>) -> Result<(
     assert_eq!(new_user.email, "bar@qq.com");
     assert_eq!(new_user.name, "lzl");
     assert_eq!(new_user.status, ConfirmStatus::Pending.to_string());
-    Ok(())
-}
+});
 
 normal_test!(subscribe_returns_400_for_invalid_data, [app] {
     let invalid_data = [
@@ -71,10 +63,7 @@ normal_test!(subscribe_returns_400_for_invalid_data, [app] {
     }
 });
 
-#[sqlx::test]
-async fn subscribe_returns_a_confirmation_email(pool: Pool<Postgres>) -> Result<()> {
-    let test_app = get_test_app(pool).await?;
-
+normal_test!(subscribe_returns_a_confirmation_email, [test_app] {
     Mock::given(path("/email"))
         .respond_with(ResponseTemplate::new(200))
         .expect(1)
@@ -92,6 +81,4 @@ async fn subscribe_returns_a_confirmation_email(pool: Pool<Postgres>) -> Result<
     let html_link = get_first_link(body["HtmlBody"].as_str().unwrap(), 7070);
     let text_link = get_first_link(body["TextBody"].as_str().unwrap(), 7070);
     assert_eq!(html_link, text_link);
-
-    Ok(())
-}
+});

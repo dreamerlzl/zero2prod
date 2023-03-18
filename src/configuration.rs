@@ -114,7 +114,6 @@ pub fn get_test_configuration(path: &str) -> Result<Configuration, config::Confi
 #[cfg(test)]
 mod tests {
     use std::{
-        env,
         fs::{create_dir_all, remove_file, File},
         io::Write,
         path::Path,
@@ -126,26 +125,23 @@ mod tests {
 
     use super::get_test_configuration;
 
-    fn get_random_str() -> String {
-        rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(7)
-            .map(char::from)
-            .collect()
-    }
-
     // just test Environment variables
     #[test]
     #[serial]
-    #[ignore]
+    //#[ignore]
     fn test_env() {
-        env::set_var("APP__APP_PORT", "8081");
-        env::set_var("APP__DB__USERNAME", "foo");
-        env::set_var("APP__DB__PASSWORD", "bar");
-        env::set_var("APP__DB__PORT", "1234");
-        env::set_var("APP__DB__HOST", "localhost");
-        env::set_var("APP__DB__NAME", "test");
-        env::set_var("APP__DB__REQUIRE_SSL", "TRUE");
+        let _guard = TempTestConfig::new(
+            "",
+            vec![
+                ("APP__PORT", "8081"),
+                ("DB__USERNAME", "foo"),
+                ("DB__PASSWORD", "bar"),
+                ("DB__PORT", "1234"),
+                ("DB__HOST", "localhost"),
+                ("DB__NAME", "test"),
+                ("DB__REQUIRE_SSL", "TRUE"),
+            ],
+        );
 
         let conf = get_test_configuration("config/test").expect("fail to get conf");
 
@@ -154,31 +150,18 @@ mod tests {
         assert_eq!(conf.db.port, 1234);
         assert_eq!(conf.db.host, "localhost");
         assert_eq!(conf.db.name, "test");
-        assert_eq!(conf.app.port, 8081);
         assert!(conf.db.require_ssl);
-
-        env::remove_var("APP__APP_PORT");
-        env::remove_var("APP__DB__USERNAME");
-        env::remove_var("APP__DB__PASSWORD");
-        env::remove_var("APP__DB__PORT");
-        env::remove_var("APP__DB__HOST");
-        env::remove_var("APP__DB__NAME");
-        env::remove_var("APP__DB__REQUIRE_SSL");
+        assert_eq!(conf.app.port, 8081);
     }
 
     // create a temporary configuration.yml file
     #[test]
     #[serial]
-    #[ignore]
+    //#[ignore]
     fn test_file() {
         // create a temporary configuration.yaml under $root/config/
 
-        create_dir_all("config").expect("fail to create dir config");
-        let path_str = format!("config/test-{}.yaml", get_random_str());
-        let path = Path::new(&path_str);
-        {
-            let mut file = File::create(path).expect("fail to create the test configuration yaml");
-            let content = r#"
+        let content = r#"
 app:
   port: 1234
   base_url: "http://127.0.0.1"
@@ -198,11 +181,9 @@ db:
   name: test
 redis_uri: "redis://localhost:6379/"
 "#;
-            file.write_all(content.as_bytes())
-                .expect("fail to write config content");
-        }
 
-        let conf = get_test_configuration(&path_str).expect("fail to get conf");
+        let guard = TempTestConfig::new(content, vec![]);
+        let conf = get_test_configuration(&guard.path).expect("fail to get conf");
         assert_eq!(conf.db.username, "foo");
         assert_eq!(conf.db.password.expose_secret(), "123");
         assert_eq!(conf.db.port, 111);
@@ -215,26 +196,18 @@ redis_uri: "redis://localhost:6379/"
             conf.email_client.api_base_url,
             "https://api.postmarkapp.com"
         );
-
-        remove_file(path).expect("fail to remove test config");
     }
 
     #[test]
     #[serial]
-    #[ignore]
+    //#[ignore]
     fn test_hierarchy() {
-        use std::fs::{create_dir_all, File};
         // create a temporary configuration.yaml under $root/config/
-
-        create_dir_all("config").expect("fail to create dir config");
-        let path_str = format!("config/test-{}.yaml", get_random_str());
-        let path = Path::new(&path_str);
-        {
-            let mut file = File::create(path).expect("fail to create the test configuration yaml");
-            let content = "
+        let content = "
 app:
   port: 1234
   base_url: 'http://127.0.0.1'
+redis_uri: 'redis://localhost:6379/'
 email_client:
   api_base_url: https://example.com
   sender_email: buffoonlzl0@gmail.com
@@ -245,25 +218,65 @@ db:
   host: bar
   require_ssl: true
   name: test";
-            file.write_all(content.as_bytes())
-                .expect("fail to write config content");
-            file.flush().expect("fail to flush files");
-        }
-        env::set_var("APP__DB__PASSWORD", "aaa");
-        env::set_var("APP__DB__PORT", "111");
-        env::set_var("APP__DB__REQUIRE_SSL", "FALSE");
 
-        let conf = get_test_configuration(&path_str).expect("fail to get conf");
+        let guard = TempTestConfig::new(
+            content,
+            vec![
+                ("DB__PASSWORD", "aaa"),
+                ("DB__PORT", "111"),
+                ("DB__REQUIRE_SSL", "FALSE"),
+                ("APP__ADMIN_USERNAME", "foo"),
+                ("APP__ADMIN_PASSWORD", "bar"),
+            ],
+        );
+        let conf = get_test_configuration(&guard.path).expect("fail to get conf");
         assert_eq!(conf.db.username, "foo");
         assert_eq!(conf.db.password.expose_secret(), "aaa");
         assert_eq!(conf.db.port, 111);
         assert_eq!(conf.db.host, "bar");
         assert_eq!(conf.db.name, "test");
         assert_eq!(conf.app.port, 1234);
-        assert!(conf.db.require_ssl);
-        remove_file(path).expect("fail to remove test config");
+        assert_eq!(conf.app.admin_username, "foo");
+        assert_eq!(conf.app.admin_password, "bar");
+        assert!(!conf.db.require_ssl);
+    }
 
-        env::remove_var("APP__DB__PASSWORD");
-        env::remove_var("APP__DB__PORT");
+    struct TempTestConfig {
+        path: String,
+    }
+
+    impl TempTestConfig {
+        fn new(content: &str, env_vars: Vec<(&str, &str)>) -> Self {
+            create_dir_all("config").expect("fail to create dir config");
+            let path_str = format!("config/test-{}.yaml", get_random_str());
+            let path = Path::new(&path_str);
+            let mut file = File::create(path).expect("fail to create the test configuration yaml");
+            file.write_all(content.as_bytes())
+                .expect("fail to write config content");
+            file.flush().expect("fail to flush files");
+            for (key, value) in env_vars.into_iter() {
+                std::env::set_var(&format!("APP__{}", key), value)
+            }
+            TempTestConfig { path: path_str }
+        }
+    }
+
+    impl Drop for TempTestConfig {
+        fn drop(&mut self) {
+            remove_file(&self.path).expect("fail to remove test config");
+            for (key, _) in std::env::vars() {
+                if key.starts_with("APP__") {
+                    std::env::remove_var(key)
+                }
+            }
+        }
+    }
+
+    fn get_random_str() -> String {
+        rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect()
     }
 }
